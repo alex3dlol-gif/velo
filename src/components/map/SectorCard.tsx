@@ -11,9 +11,10 @@ type SectorCardProps = {
   onClose: () => void;
   onBuildRoute: (h3Index: string) => void;
   routeLoading?: boolean;
+  routeError?: string | null;
 };
 
-export default function SectorCard({ data, onClose, onBuildRoute, routeLoading }: SectorCardProps) {
+export default function SectorCard({ data, onClose, onBuildRoute, routeLoading, routeError }: SectorCardProps) {
   const { travel } = useApp();
   const [geo, setGeo] = useState<SectorGeoInfo | null>(null);
   const [stats, setStats] = useState<SectorSocialStats | null>(null);
@@ -134,6 +135,11 @@ export default function SectorCard({ data, onClose, onBuildRoute, routeLoading }
               ? "Построение…"
               : routeLabel}
         </button>
+        {routeError && (
+          <p className="font-mono text-[10px] mt-2 text-center leading-snug" style={{ color: "var(--terracotta)" }}>
+            {routeError}
+          </p>
+        )}
         {!data.accessible && data.routable && data.inaccessibleReason && (
           <p className="font-mono text-[10px] mt-2 text-center leading-snug" style={{ color: "var(--ink-soft)" }}>
             {data.inaccessibleReason} — маршрут можно построить, но сектор не откроется

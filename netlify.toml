@@ -7,6 +7,12 @@
   NPM_FLAGS = "--include=optional"
 
 [[redirects]]
+  from = "/api/osrm/*"
+  to = "https://router.project-osrm.org/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

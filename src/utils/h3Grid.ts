@@ -7,7 +7,7 @@ import {
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { H3_RESOLUTION } from "../constants/h3";
 import { isInsideMkadRing } from "../constants/mkadPolygon";
-import { MKAD_CENTER, MKAD_DEFAULT_ZOOM } from "../constants/mkad";
+import { MKAD_BOUNDS, MKAD_CENTER, MKAD_DEFAULT_ZOOM } from "../constants/mkad";
 import type { MapBounds } from "../types/map";
 
 export { H3_RESOLUTION } from "../constants/h3";
@@ -17,11 +17,11 @@ const BOUNDARY_CACHE = new Map<string, [number, number][]>();
 const VIEWPORT_CELL_CACHE = new Map<string, string[]>();
 
 function maxCellsForZoom(zoom: number): number {
-  if (zoom >= 16) return 180;
-  if (zoom >= 14) return 140;
-  if (zoom >= 12) return 100;
-  if (zoom >= 11) return 70;
-  return 45;
+  if (zoom >= 16) return 240;
+  if (zoom >= 14) return 200;
+  if (zoom >= 12) return 140;
+  if (zoom >= 11) return 90;
+  return 60;
 }
 
 function getCellRing(h3Index: string): [number, number][] {
@@ -46,6 +46,14 @@ function polygonFromRing(h3Index: string, properties: Record<string, unknown> = 
     type: "Feature",
     properties: { h3Index, ...properties },
     geometry: { type: "Polygon", coordinates: [getCellRing(h3Index)] },
+  };
+}
+
+function cellToGridLineFeature(h3Index: string): Feature {
+  return {
+    type: "Feature",
+    properties: { h3Index, grid: true },
+    geometry: { type: "LineString", coordinates: getCellRing(h3Index) },
   };
 }
 
@@ -114,7 +122,19 @@ function reverseRing(ring: [number, number][]): [number, number][] {
 
 function isCellInsideMkad(h3Index: string): boolean {
   const [lat, lng] = cellToLatLng(h3Index);
-  return isInsideMkadRing(lat, lng);
+  if (
+    lng < MKAD_BOUNDS.west ||
+    lng > MKAD_BOUNDS.east ||
+    lat < MKAD_BOUNDS.south ||
+    lat > MKAD_BOUNDS.north
+  ) {
+    return false;
+  }
+  if (isInsideMkadRing(lat, lng)) return true;
+  for (const [lngPt, latPt] of cellToBoundary(h3Index, true)) {
+    if (isInsideMkadRing(latPt, lngPt)) return true;
+  }
+  return false;
 }
 
 function filterMkadCells(indices: string[]): string[] {
@@ -173,8 +193,10 @@ export function getCellsForViewport(
     getCellsForBounds(clampBounds(padBounds(viewport, zoom), clip), viewport, clip, resolution, maxCells),
   );
 
-  if (VIEWPORT_CELL_CACHE.size > 24) VIEWPORT_CELL_CACHE.clear();
-  VIEWPORT_CELL_CACHE.set(cacheKey, cells);
+  if (cells.length > 0) {
+    if (VIEWPORT_CELL_CACHE.size > 24) VIEWPORT_CELL_CACHE.clear();
+    VIEWPORT_CELL_CACHE.set(cacheKey, cells);
+  }
   return cells;
 }
 
@@ -184,7 +206,7 @@ export function getCellsForViewportExtended(
   resolution = H3_RESOLUTION,
   zoom = 14,
 ): string[] {
-  return getCellsForBounds(padBounds(viewport, zoom), viewport, null, resolution, zoom);
+  return getCellsForBounds(padBounds(viewport, zoom), viewport, null, resolution, maxCellsForZoom(zoom));
 }
 
 function getCellsForBounds(
@@ -196,23 +218,28 @@ function getCellsForBounds(
 ): string[] {
   const cells = new Set(getCellsInBounds(query, resolution, maxCells));
 
+  const centerLat = (viewport.north + viewport.south) / 2;
+  const centerLng = (viewport.east + viewport.west) / 2;
+  const centerCell = latLngToCell(centerLat, centerLng, resolution);
+  cells.add(centerCell);
+  for (const neighbor of gridDisk(centerCell, 4)) cells.add(neighbor);
+
   const edgeSamples: [number, number][] = [
     [viewport.north, viewport.west],
     [viewport.north, viewport.east],
     [viewport.south, viewport.west],
     [viewport.south, viewport.east],
+    [centerLat, centerLng],
   ];
 
   for (const [lat, lng] of edgeSamples) {
     if (clip && !isInsideBounds(lat, lng, clip)) continue;
-    if (!isInsideMkadRing(lat, lng)) continue;
     const origin = latLngToCell(lat, lng, resolution);
     cells.add(origin);
-    for (const neighbor of gridDisk(origin, 1)) cells.add(neighbor);
+    for (const neighbor of gridDisk(origin, 2)) cells.add(neighbor);
   }
 
-  const list = [...cells];
-  return list.length > maxCells * 1.25 ? list.slice(0, maxCells) : list;
+  return [...cells].slice(0, Math.round(maxCells * 1.5));
 }
 
 /** Converts lat/lng to H3 index at resolution 9. */
@@ -268,7 +295,7 @@ export function buildViewportHexLayers(
 ): {
   fog: FeatureCollection<Polygon>;
   explored: FeatureCollection<Polygon>;
-  grid: FeatureCollection<Polygon>;
+  grid: FeatureCollection;
   revealed: FeatureCollection<Polygon>;
   cells: string[];
 } {
@@ -276,11 +303,11 @@ export function buildViewportHexLayers(
   const cellSet = new Set(cells);
   const fog: Feature<Polygon>[] = [];
   const explored: Feature<Polygon>[] = [];
-  const grid: Feature<Polygon>[] = [];
+  const grid: Feature[] = [];
   const revealed: Feature<Polygon>[] = [];
 
   for (const idx of cells) {
-    grid.push(polygonFromRing(idx, { grid: true }));
+    grid.push(cellToGridLineFeature(idx));
     if (visited.has(idx)) {
       const feature = polygonFromRing(idx, { explored: true });
       explored.push(feature);
@@ -323,7 +350,7 @@ export function buildHexGridLayer(
   viewport: MapBounds,
   clip: MapBounds,
   zoom = 14,
-): FeatureCollection<Polygon> {
+): FeatureCollection {
   return buildViewportHexLayers(viewport, new Set(), clip, zoom).grid;
 }
 
@@ -373,17 +400,17 @@ export function buildNatureWaterLayer(
 export function getHexLayerPaint(isAmoled: boolean) {
   return {
     fog: {
-      fill: isAmoled ? "#1e1438" : "#C9B8E8",
-      fillOpacity: isAmoled ? 0.82 : 0.68,
+      fill: isAmoled ? "#1e1438" : "#B8A4D8",
+      fillOpacity: isAmoled ? 0.86 : 0.78,
     },
     explored: {
-      fill: isAmoled ? "#3d2810" : "#FFE9B8",
-      fillOpacity: isAmoled ? 0.55 : 0.72,
+      fill: isAmoled ? "#3d2810" : "#FFE4A8",
+      fillOpacity: isAmoled ? 0.6 : 0.82,
     },
     grid: {
-      line: isAmoled ? "#6B5B8A" : "#C49A6C",
-      lineOpacity: isAmoled ? 0.45 : 0.7,
-      lineWidth: 1.1,
+      line: isAmoled ? "#8B7AA8" : "#9A6B42",
+      lineOpacity: isAmoled ? 0.65 : 0.88,
+      lineWidth: 1.35,
     },
     revealed: {
       line: isAmoled ? "#FF8F5C" : "#E85A2B",

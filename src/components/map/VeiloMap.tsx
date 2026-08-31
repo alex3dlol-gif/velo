@@ -55,8 +55,6 @@ const DISTRICT_LABELS_SOURCE = "district-labels";
 const DISTRICT_LEADERS_SOURCE = "district-leaders";
 const DISTRICT_BOUNDARY_UNLOCKED = "district-boundary-unlocked";
 const DISTRICT_BOUNDARY_LOCKED = "district-boundary-locked";
-const DISTRICT_UNLOCKED_FILL = "district-unlocked-fill";
-const DISTRICT_LOCKED_FILL = "district-locked-fill";
 const DISTRICT_LABEL_HIT_LAYER = "district-label-hit";
 const DISTRICT_LABEL_LAYER = "district-labels";
 const DISTRICT_LEADER_LAYER = "district-leader-lines";
@@ -100,6 +98,7 @@ export default function VeiloMap({
   const [selectedHex, setSelectedHex] = useState<string | null>(null);
   const [route, setRoute] = useState<RouteGeoJSON | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
   const [districtCardId, setDistrictCardId] = useState<string | null>(null);
   const [districtName, setDistrictName] = useState("Москва");
   const hasCenteredOnUserRef = useRef(false);
@@ -120,16 +119,6 @@ export default function VeiloMap({
 
   const updateViewportLayers = useCallback((map: Map) => {
     const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-
-    if (!showGridRef.current) {
-      setSourceData(map, FOG_MASK_SOURCE, empty);
-      setSourceData(map, EXPLORED_SOURCE, empty);
-      setSourceData(map, GRID_SOURCE, empty);
-      setSourceData(map, REVEALED_SOURCE, empty);
-      setSourceData(map, NATURE_SOURCE, empty);
-      return;
-    }
-
     const bounds = mapViewportBounds(map);
     const zoom = map.getZoom();
 
@@ -143,11 +132,11 @@ export default function VeiloMap({
       );
       setSourceData(map, FOG_MASK_SOURCE, fog);
       setSourceData(map, EXPLORED_SOURCE, explored);
-      setSourceData(map, GRID_SOURCE, grid);
+      setSourceData(map, GRID_SOURCE, showGridRef.current ? grid : empty);
       setSourceData(map, REVEALED_SOURCE, revealed);
       setSourceData(map, NATURE_SOURCE, buildNatureWaterLayer(cells, isNatureWaterCell));
-    } catch {
-      /* skip */
+    } catch (error) {
+      console.warn("[VeiloMap] hex layer update failed", error);
     }
   }, []);
 
@@ -260,6 +249,7 @@ export default function VeiloMap({
         if (!map) return;
         installMapLayers(map);
         map.resize();
+        map.once("idle", () => updateHexLayers(map!));
         setMapReady(true);
         prevAmoledRef.current = isAmoledRef.current;
       });
@@ -408,7 +398,17 @@ export default function VeiloMap({
 
   const handleBuildRoute = useCallback(
     async (h3Index: string) => {
-      if (!position || position.accuracy >= 500) return;
+      setRouteError(null);
+
+      if (!position) {
+        setRouteError("Ожидание GPS — подождите несколько секунд");
+        return;
+      }
+      if (position.accuracy >= 2000) {
+        setRouteError("Слабый сигнал GPS — выйдите на открытое место");
+        return;
+      }
+
       setRouteLoading(true);
       const [targetLat, targetLng] = cellToLatLng(h3Index);
       const [startLng, startLat] = clampToMkad(position.lng, position.lat);
@@ -416,13 +416,17 @@ export default function VeiloMap({
       const result = await fetchRoute(startLng, startLat, targetLng, targetLat, travel);
       setRouteLoading(false);
 
-      if (!result) return;
-      setRoute(result);
+      if (!result.ok) {
+        setRouteError(result.error);
+        return;
+      }
+
+      setRoute(result.route);
 
       const map = mapRef.current;
       if (!map) return;
 
-      const [[swLng, swLat], [neLng, neLat]] = routeBounds(result);
+      const [[swLng, swLat], [neLng, neLat]] = routeBounds(result.route);
       map.fitBounds(
         [
           [Math.min(swLng, startLng), Math.min(swLat, startLat)],
@@ -436,11 +440,13 @@ export default function VeiloMap({
 
   const clearRoute = useCallback(() => {
     setRoute(null);
+    setRouteError(null);
   }, []);
 
   const closeSectorCard = useCallback(() => {
     setSectorCard(null);
     setSelectedHex(null);
+    setRouteError(null);
   }, []);
 
   const closeDistrictCard = useCallback(() => setDistrictCardId(null), []);
@@ -487,6 +493,7 @@ export default function VeiloMap({
         onClose={closeSectorCard}
         onBuildRoute={handleBuildRoute}
         routeLoading={routeLoading}
+        routeError={routeError}
       />
 
       <DistrictCard districtId={districtCardId} states={districtStates} onClose={closeDistrictCard} />
@@ -519,8 +526,6 @@ function removeMapLayers(map: Map) {
     DISTRICT_LEADER_LAYER,
     DISTRICT_BOUNDARY_UNLOCKED,
     DISTRICT_BOUNDARY_LOCKED,
-    DISTRICT_UNLOCKED_FILL,
-    DISTRICT_LOCKED_FILL,
     MKAD_RING_LAYER,
     "h3-revealed-line",
     NATURE_LINE_LAYER,
@@ -561,30 +566,13 @@ function addMapSources(map: Map) {
   });
 
   map.addSource(DISTRICT_SOURCE, { type: "geojson", data: empty });
-  map.addLayer({
-    id: DISTRICT_UNLOCKED_FILL,
-    type: "fill",
-    source: DISTRICT_SOURCE,
-    filter: ["==", ["get", "unlocked"], true],
-    paint: {
-      "fill-color": ["get", "zoneColor"],
-      "fill-opacity": ["case", ["get", "isHome"], 0.28, 0.18],
-    },
-  });
-  map.addLayer({
-    id: DISTRICT_LOCKED_FILL,
-    type: "fill",
-    source: DISTRICT_SOURCE,
-    filter: ["==", ["get", "unlocked"], false],
-    paint: { "fill-color": "#B8A8D8", "fill-opacity": 0.22 },
-  });
 
   map.addSource(EXPLORED_SOURCE, { type: "geojson", data: empty });
   map.addLayer({
     id: EXPLORED_FILL_LAYER,
     type: "fill",
     source: EXPLORED_SOURCE,
-    paint: { "fill-color": "#FFE9B8", "fill-opacity": 0.72 },
+    paint: { "fill-color": "#FFE4A8", "fill-opacity": 0.82 },
   });
 
   map.addSource(FOG_MASK_SOURCE, { type: "geojson", data: empty });
@@ -592,7 +580,7 @@ function addMapSources(map: Map) {
     id: FOG_MASK_LAYER,
     type: "fill",
     source: FOG_MASK_SOURCE,
-    paint: { "fill-color": "#C9B8E8", "fill-opacity": 0.68 },
+    paint: { "fill-color": "#B8A4D8", "fill-opacity": 0.78 },
   });
 
   map.addSource(GRID_SOURCE, { type: "geojson", data: empty });
@@ -600,7 +588,7 @@ function addMapSources(map: Map) {
     id: GRID_LINE_LAYER,
     type: "line",
     source: GRID_SOURCE,
-    paint: { "line-color": "#C49A6C", "line-width": 1.1, "line-opacity": 0.7 },
+    paint: { "line-color": "#9A6B42", "line-width": 1.35, "line-opacity": 0.88 },
   });
 
   map.addSource(REVEALED_SOURCE, { type: "geojson", data: empty });
@@ -783,17 +771,6 @@ function applyLayerPaint(map: Map, isAmoled: boolean) {
     map.setPaintProperty(NATURE_LINE_LAYER, "line-color", paint.nature.line);
     map.setPaintProperty(NATURE_LINE_LAYER, "line-opacity", paint.nature.lineOpacity);
     map.setPaintProperty(NATURE_LINE_LAYER, "line-width", paint.nature.lineWidth);
-  }
-  if (map.getLayer(DISTRICT_LOCKED_FILL)) {
-    map.setPaintProperty(DISTRICT_LOCKED_FILL, "fill-color", paint.district.lockedFill);
-    map.setPaintProperty(DISTRICT_LOCKED_FILL, "fill-opacity", paint.district.lockedFillOpacity);
-  }
-  if (map.getLayer(DISTRICT_UNLOCKED_FILL)) {
-    map.setPaintProperty(
-      DISTRICT_UNLOCKED_FILL,
-      "fill-opacity",
-      ["case", ["get", "isHome"], paint.district.unlockedFillOpacity + 0.08, paint.district.unlockedFillOpacity],
-    );
   }
   if (map.getLayer(DISTRICT_BOUNDARY_UNLOCKED)) {
     map.setPaintProperty(DISTRICT_BOUNDARY_UNLOCKED, "line-color", paint.district.unlockedLine);

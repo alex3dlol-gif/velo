@@ -37,6 +37,13 @@ export default defineConfig(({ mode }) => {
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
+      proxy: {
+        '/api/osrm': {
+          target: 'https://router.project-osrm.org',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/osrm/, ''),
+        },
+      },
     },
     preview: {
       host: '0.0.0.0',
