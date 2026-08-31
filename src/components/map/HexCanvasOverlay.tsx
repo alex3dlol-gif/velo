@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Map } from "../../lib/maplibre";
 import { useTheme } from "../../context/ThemeContext";
+import { getDistrictZoneColor } from "../../constants/districtColors";
 import { MKAD_BOUNDS } from "../../constants/mkad";
-import { buildViewportHexLayers, type MapBounds } from "../../utils/h3Grid";
+import { getDistrictIdForCell } from "../../utils/districtGeometry";
+import { buildViewportHexLayers, getCellRingCoords, type MapBounds } from "../../utils/h3Grid";
 import { isNatureWaterCell } from "../../utils/natureReveals";
 
 type HexCanvasOverlayProps = {
@@ -11,13 +13,13 @@ type HexCanvasOverlayProps = {
   showGrid: boolean;
 };
 
-const FOG_LIGHT = "rgba(184, 164, 216, 0.86)";
-const FOG_DARK = "rgba(30, 20, 56, 0.9)";
-const EXPLORED_LIGHT = "rgba(255, 228, 168, 0.88)";
-const EXPLORED_DARK = "rgba(61, 40, 16, 0.75)";
-const GRID_LIGHT = "rgba(92, 61, 30, 0.95)";
-const GRID_DARK = "rgba(232, 212, 255, 0.9)";
-const REVEALED_STROKE = "rgba(232, 90, 43, 0.9)";
+const DEFAULT_FOG = "#B8A4D8";
+const GRID_LIGHT = "rgba(92, 61, 30, 0.55)";
+const GRID_DARK = "rgba(232, 212, 255, 0.45)";
+const REVEALED_STROKE = "rgba(232, 90, 43, 0.85)";
+const NATURE_STROKE = "rgba(46, 159, 214, 0.7)";
+const FOG_ALPHA_LIGHT = 0.68;
+const FOG_ALPHA_DARK = 0.78;
 
 function mapBounds(map: Map): MapBounds {
   const b = map.getBounds();
@@ -45,6 +47,21 @@ function syncCanvasToMap(map: Map, canvas: HTMLCanvasElement): { cssW: number; c
   canvas.style.zIndex = "1";
 
   return { cssW, cssH, dpr };
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function fogColorForCell(h3Index: string, isAmoled: boolean): string {
+  const districtId = getDistrictIdForCell(h3Index);
+  const base = districtId ? getDistrictZoneColor(districtId) : DEFAULT_FOG;
+  const alpha = isAmoled ? FOG_ALPHA_DARK : FOG_ALPHA_LIGHT;
+  return hexToRgba(base, alpha);
 }
 
 function drawRing(
@@ -118,37 +135,45 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
 
     const bounds = mapBounds(map);
     const zoom = map.getZoom();
-    const fogColor = isAmoled ? FOG_DARK : FOG_LIGHT;
-    const exploredColor = isAmoled ? EXPLORED_DARK : EXPLORED_LIGHT;
     const gridColor = isAmoled ? GRID_DARK : GRID_LIGHT;
-
-    ctx.fillStyle = fogColor;
-    ctx.fillRect(0, 0, cssW, cssH);
+    const visitedSet = visitedRef.current;
 
     try {
-      const { explored, grid, revealed } = buildViewportHexLayers(
+      const { fog, grid, cells } = buildViewportHexLayers(
         bounds,
-        visitedRef.current,
+        visitedSet,
         MKAD_BOUNDS,
         zoom,
         isNatureWaterCell,
       );
 
-      for (const feature of explored.features) {
+      for (const feature of fog.features) {
+        const h3Index = feature.properties?.h3Index as string;
         const ring = feature.geometry.coordinates[0] as [number, number][];
-        drawRing(ctx, map, ring, exploredColor);
+        drawRing(ctx, map, ring, fogColorForCell(h3Index, isAmoled));
       }
 
       if (showGridRef.current) {
         for (const feature of grid.features) {
           if (feature.geometry.type !== "LineString") continue;
-          drawLine(ctx, map, feature.geometry.coordinates as [number, number][], gridColor, 2);
+          drawLine(ctx, map, feature.geometry.coordinates as [number, number][], gridColor, 1.5);
         }
       }
 
-      for (const feature of revealed.features) {
-        const ring = feature.geometry.coordinates[0] as [number, number][];
-        drawRing(ctx, map, ring, "", REVEALED_STROKE, 2.5);
+      for (const idx of cells) {
+        if (!visitedSet.has(idx) && !isNatureWaterCell(idx)) continue;
+        const ring = getCellRingCoords(idx);
+        if (isNatureWaterCell(idx)) {
+          drawRing(ctx, map, ring, "", NATURE_STROKE, 1.5);
+        } else {
+          drawRing(ctx, map, ring, "", REVEALED_STROKE, 2);
+        }
+      }
+
+      for (const idx of visitedSet) {
+        if (cells.includes(idx)) continue;
+        const ring = getCellRingCoords(idx);
+        drawRing(ctx, map, ring, "", REVEALED_STROKE, 2);
       }
     } catch (error) {
       console.warn("[HexCanvasOverlay] draw failed", error);

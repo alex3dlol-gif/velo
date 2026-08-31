@@ -129,23 +129,17 @@ export default function VeiloMap({
     const zoom = map.getZoom();
 
     try {
-      const fogSheet = buildViewportFogSheet(bounds, MKAD_BOUNDS, zoom);
-      setSourceData(map, FOG_MASK_SOURCE, { type: "FeatureCollection", features: [fogSheet] });
-    } catch (error) {
-      console.warn("[VeiloMap] fog layer failed", error);
-    }
-
-    try {
-      const { explored, grid, revealed, cells } = buildViewportHexLayers(
+      const { cells } = buildViewportHexLayers(
         bounds,
         visitedRef.current,
         MKAD_BOUNDS,
         zoom,
         isNatureWaterCell,
       );
-      setSourceData(map, EXPLORED_SOURCE, explored);
-      setSourceData(map, GRID_SOURCE, showGridRef.current ? grid : empty);
-      setSourceData(map, REVEALED_SOURCE, revealed);
+      setSourceData(map, FOG_MASK_SOURCE, empty);
+      setSourceData(map, EXPLORED_SOURCE, empty);
+      setSourceData(map, GRID_SOURCE, empty);
+      setSourceData(map, REVEALED_SOURCE, empty);
       setSourceData(map, NATURE_SOURCE, buildNatureWaterLayer(cells, isNatureWaterCell));
     } catch (error) {
       console.warn("[VeiloMap] hex grid failed", error);
