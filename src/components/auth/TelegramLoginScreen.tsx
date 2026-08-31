@@ -1,25 +1,28 @@
 import { useEffect, useRef } from "react";
-import { useAuth, type TelegramWidgetUser } from "../../context/AuthContext";
-
-declare global {
-  interface Window {
-    onTelegramAuth?: (user: TelegramWidgetUser) => void;
-  }
-}
+import { useAuth } from "../../context/AuthContext";
+import {
+  getTelegramAuthCallbackUrl,
+  setTelegramAuthHandler,
+} from "../../utils/telegramAuthBridge";
 
 const BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME?.replace(/^@/, "");
 
 export default function TelegramLoginScreen() {
-  const { signInWithTelegram, authError, loading } = useAuth();
+  const { signInWithTelegram, authError, loading, signingIn } = useAuth();
   const widgetRef = useRef<HTMLDivElement>(null);
+  const signInRef = useRef(signInWithTelegram);
+  signInRef.current = signInWithTelegram;
   const configured = Boolean(BOT_USERNAME);
 
   useEffect(() => {
-    if (!configured || !widgetRef.current) return;
+    setTelegramAuthHandler((user) => {
+      void signInRef.current(user);
+    });
+    return () => setTelegramAuthHandler(null);
+  }, []);
 
-    window.onTelegramAuth = (user) => {
-      void signInWithTelegram(user);
-    };
+  useEffect(() => {
+    if (!configured || !widgetRef.current || signingIn) return;
 
     const script = document.createElement("script");
     script.src = "https://telegram.org/js/telegram-widget.js?22";
@@ -27,16 +30,15 @@ export default function TelegramLoginScreen() {
     script.setAttribute("data-telegram-login", BOT_USERNAME);
     script.setAttribute("data-size", "large");
     script.setAttribute("data-radius", "12");
+    script.setAttribute("data-auth-url", getTelegramAuthCallbackUrl());
     script.setAttribute("data-onauth", "onTelegramAuth(user)");
     script.setAttribute("data-request-access", "write");
 
     widgetRef.current.innerHTML = "";
     widgetRef.current.appendChild(script);
+  }, [configured, signingIn]);
 
-    return () => {
-      delete window.onTelegramAuth;
-    };
-  }, [configured, signInWithTelegram]);
+  const busy = loading || signingIn;
 
   return (
     <div
@@ -54,9 +56,9 @@ export default function TelegramLoginScreen() {
       </div>
 
       <div className="mt-10 w-full max-w-[300px] flex flex-col items-center gap-4">
-        {loading ? (
-          <p className="font-mono text-[12px]" style={{ color: "var(--ink-soft)" }}>
-            Проверяем сессию…
+        {busy ? (
+          <p className="font-mono text-[12px] text-center" style={{ color: "var(--ink-soft)" }}>
+            {signingIn ? "Входим через Telegram…" : "Проверяем сессию…"}
           </p>
         ) : configured ? (
           <>
@@ -65,18 +67,8 @@ export default function TelegramLoginScreen() {
             </p>
             <div ref={widgetRef} className="min-h-[44px] flex items-center justify-center" />
             <p className="font-mono text-[10px] text-center leading-relaxed" style={{ color: "var(--ink-soft)" }}>
-              Нажмите кнопку — откроется окно Telegram для подтверждения.
+              После нажатия страница обновится — это нормально.
             </p>
-            {window.location.hostname === "localhost" && (
-              <p
-                className="font-mono text-[9px] text-center leading-relaxed px-2 rounded-lg py-2"
-                style={{ background: "var(--surface-2)", color: "#e85d4c", border: "1px solid var(--line)" }}
-              >
-                localhost не работает с Telegram Login. Откройте{" "}
-                <strong>veilo.localtest.me:{window.location.port || "8443"}</strong> и привяжите домен{" "}
-                <strong>localtest.me</strong> в @BotFather → /setdomain
-              </p>
-            )}
           </>
         ) : (
           <div
@@ -87,15 +79,13 @@ export default function TelegramLoginScreen() {
               Telegram Login не настроен
             </p>
             <p>
-              Добавьте в <code className="text-[10px]">.env.local</code>:
-              <br />
-              <code className="text-[10px]">VITE_TELEGRAM_BOT_USERNAME</code>
+              Добавьте <code className="text-[10px]">VITE_TELEGRAM_BOT_USERNAME</code> в переменные окружения
             </p>
           </div>
         )}
 
         {authError && (
-          <p className="font-mono text-[11px] text-center px-2" style={{ color: "#e85d4c" }}>
+          <p className="font-mono text-[11px] text-center px-2 leading-relaxed" style={{ color: "#e85d4c" }}>
             {authError}
           </p>
         )}

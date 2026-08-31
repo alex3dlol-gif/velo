@@ -1,23 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../types/supabase";
+import type { TelegramWidgetUser } from "../types/telegramAuth";
+import { clearTelegramAuthFromUrl, parseTelegramAuthFromUrl } from "../utils/telegramAuthBridge";
 
-export type TelegramWidgetUser = {
-  id: number;
-  first_name: string;
-  last_name?: string;
-  username?: string;
-  photo_url?: string;
-  auth_date: number;
-  hash: string;
-};
+export type { TelegramWidgetUser };
 
 type AuthContextValue = {
   session: Session | null;
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  signingIn: boolean;
   authError: string | null;
   needsOnboarding: boolean;
   signInWithTelegram: (widgetUser: TelegramWidgetUser) => Promise<void>;
@@ -28,18 +24,29 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function readFunctionError(error: unknown): Promise<string> {
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const payload = (await error.context.json()) as { error?: string };
+      if (payload?.error) return payload.error;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return "Ошибка входа через Telegram";
+}
+
 async function exchangeTelegramSession(widgetUser: TelegramWidgetUser) {
   const { data, error } = await supabase.functions.invoke("telegram-auth", {
     body: { widgetUser },
   });
 
-  if (error) {
-    throw new Error(error.message || "Не удалось связаться с сервером авторизации");
-  }
+  if (error) throw new Error(await readFunctionError(error));
   if (data?.error) {
     const msg = String(data.error);
     if (msg.includes("not configured")) {
-      throw new Error("Сервер авторизации не настроен. Добавьте TELEGRAM_BOT_TOKEN в Supabase.");
+      throw new Error("Сервер не настроен: добавьте TELEGRAM_BOT_TOKEN в Supabase Secrets");
     }
     throw new Error(msg);
   }
@@ -48,6 +55,10 @@ async function exchangeTelegramSession(widgetUser: TelegramWidgetUser) {
     access_token: string;
     refresh_token: string;
   };
+
+  if (!access_token || !refresh_token) {
+    throw new Error("Сервер не вернул сессию");
+  }
 
   const { error: sessionError } = await supabase.auth.setSession({
     access_token,
@@ -60,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshProfile = useCallback(async () => {
@@ -80,11 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithTelegram = useCallback(
     async (widgetUser: TelegramWidgetUser) => {
       setAuthError(null);
+      setSigningIn(true);
       try {
         await exchangeTelegramSession(widgetUser);
         await refreshProfile();
       } catch (err) {
-        setAuthError(err instanceof Error ? err.message : "Ошибка входа через Telegram");
+        setAuthError(await readFunctionError(err));
+      } finally {
+        setSigningIn(false);
       }
     },
     [refreshProfile],
@@ -132,6 +147,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (loading || session) return;
+    const callbackUser = parseTelegramAuthFromUrl();
+    if (!callbackUser) return;
+    clearTelegramAuthFromUrl();
+    void signInWithTelegram(callbackUser);
+  }, [loading, session, signInWithTelegram]);
+
+  useEffect(() => {
     if (!session?.user) {
       setProfile(null);
       return;
@@ -147,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user: session?.user ?? null,
       profile,
       loading,
+      signingIn,
       authError,
       needsOnboarding,
       signInWithTelegram,
@@ -154,7 +178,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       completeOnboarding,
       refreshProfile,
     }),
-    [session, profile, loading, authError, needsOnboarding, signInWithTelegram, signOut, completeOnboarding, refreshProfile],
+    [
+      session,
+      profile,
+      loading,
+      signingIn,
+      authError,
+      needsOnboarding,
+      signInWithTelegram,
+      signOut,
+      completeOnboarding,
+      refreshProfile,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

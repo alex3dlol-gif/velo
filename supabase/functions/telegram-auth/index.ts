@@ -51,9 +51,17 @@ async function validateInitData(initData: string, botToken: string): Promise<boo
 }
 
 async function validateWidgetAuth(user: TelegramWidgetUser, botToken: string): Promise<boolean> {
-  const { hash, ...rest } = user;
-  const dataCheckString = Object.entries(rest)
-    .filter(([, v]) => v !== undefined && v !== null)
+  const { hash } = user;
+  const fields: Record<string, string> = {
+    id: String(user.id),
+    first_name: user.first_name,
+    auth_date: String(user.auth_date),
+  };
+  if (user.last_name) fields.last_name = user.last_name;
+  if (user.username) fields.username = user.username;
+  if (user.photo_url) fields.photo_url = user.photo_url;
+
+  const dataCheckString = Object.entries(fields)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`)
     .join("\n");
@@ -109,14 +117,23 @@ Deno.serve(async (req) => {
       }
       tgUser = parseTelegramUser(body.initData);
     } else if (body.widgetUser) {
-      const valid = await validateWidgetAuth(body.widgetUser, botToken);
+      const raw = body.widgetUser as Record<string, unknown>;
+      tgUser = {
+        id: Number(raw.id),
+        first_name: String(raw.first_name ?? ""),
+        auth_date: Number(raw.auth_date),
+        hash: String(raw.hash ?? ""),
+        last_name: raw.last_name ? String(raw.last_name) : undefined,
+        username: raw.username ? String(raw.username) : undefined,
+        photo_url: raw.photo_url ? String(raw.photo_url) : undefined,
+      };
+      const valid = await validateWidgetAuth(tgUser, botToken);
       if (!valid) {
         return new Response(JSON.stringify({ error: "Invalid Telegram widget auth" }), {
           status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      tgUser = body.widgetUser;
     }
 
     if (!tgUser?.id) {
