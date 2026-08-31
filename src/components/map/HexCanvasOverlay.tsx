@@ -24,6 +24,29 @@ function mapBounds(map: Map): MapBounds {
   return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
 }
 
+/** Синхронизируем буфер overlay 1:1 с canvas MapLibre — иначе сетка «сжимается» в полоску сверху. */
+function syncCanvasToMap(map: Map, canvas: HTMLCanvasElement): { cssW: number; cssH: number; dpr: number } {
+  const mapCanvas = map.getCanvas();
+  const cssW = mapCanvas.clientWidth;
+  const cssH = mapCanvas.clientHeight;
+  const dpr = cssW > 0 ? mapCanvas.width / cssW : window.devicePixelRatio || 1;
+
+  if (canvas.width !== mapCanvas.width || canvas.height !== mapCanvas.height) {
+    canvas.width = mapCanvas.width;
+    canvas.height = mapCanvas.height;
+  }
+
+  canvas.style.position = "absolute";
+  canvas.style.left = "0";
+  canvas.style.top = "0";
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  canvas.style.pointerEvents = "none";
+  canvas.style.zIndex = "1";
+
+  return { cssW, cssH, dpr };
+}
+
 function drawRing(
   ctx: CanvasRenderingContext2D,
   map: Map,
@@ -76,32 +99,22 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { isAmoled } = useTheme();
   const visitedRef = useRef(visited);
+  const showGridRef = useRef(showGrid);
   visitedRef.current = visited;
+  showGridRef.current = showGrid;
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     if (!map || !canvas) return;
 
-    const parent = canvas.parentElement;
-    if (!parent) return;
-
-    const rect = parent.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, Math.round(rect.width));
-    const h = Math.max(1, Math.round(rect.height));
-
-    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-    }
+    const { cssW, cssH, dpr } = syncCanvasToMap(map, canvas);
+    if (cssW < 2 || cssH < 2) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+    ctx.clearRect(0, 0, cssW, cssH);
 
     const bounds = mapBounds(map);
     const zoom = map.getZoom();
@@ -110,7 +123,7 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
     const gridColor = isAmoled ? GRID_DARK : GRID_LIGHT;
 
     ctx.fillStyle = fogColor;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, cssW, cssH);
 
     try {
       const { explored, grid, revealed } = buildViewportHexLayers(
@@ -126,7 +139,7 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
         drawRing(ctx, map, ring, exploredColor);
       }
 
-      if (showGrid) {
+      if (showGridRef.current) {
         for (const feature of grid.features) {
           if (feature.geometry.type !== "LineString") continue;
           drawLine(ctx, map, feature.geometry.coordinates as [number, number][], gridColor, 2);
@@ -140,37 +153,29 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
     } catch (error) {
       console.warn("[HexCanvasOverlay] draw failed", error);
     }
-  }, [map, isAmoled, showGrid]);
+  }, [map, isAmoled]);
 
   useEffect(() => {
     if (!map || !canvasRef.current) return;
+
     const host = map.getCanvasContainer();
     const el = canvasRef.current;
     if (el.parentElement !== host) {
       host.appendChild(el);
     }
-    el.style.position = "absolute";
-    el.style.inset = "0";
-    el.style.width = "100%";
-    el.style.height = "100%";
-    el.style.zIndex = "1";
-    el.style.pointerEvents = "none";
-  }, [map]);
-
-  useEffect(() => {
-    if (!map) return;
 
     paint();
+
     map.on("move", paint);
     map.on("zoom", paint);
     map.on("resize", paint);
-    map.on("load", paint);
+    map.on("render", paint);
 
     return () => {
       map.off("move", paint);
       map.off("zoom", paint);
       map.off("resize", paint);
-      map.off("load", paint);
+      map.off("render", paint);
     };
   }, [map, paint]);
 
@@ -178,10 +183,5 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
     paint();
   }, [visited, showGrid, paint]);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden
-    />
-  );
+  return <canvas ref={canvasRef} aria-hidden />;
 }
