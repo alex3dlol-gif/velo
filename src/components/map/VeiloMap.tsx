@@ -38,6 +38,7 @@ import type { RouteGeoJSON, SectorCardData } from "../../types/sector";
 import SectorCard from "./SectorCard";
 import DistrictCard from "./DistrictCard";
 import MapFab from "./MapFab";
+import HexCanvasOverlay from "./HexCanvasOverlay";
 
 const FOG_MASK_LAYER = "h3-fog-mask";
 const FOG_MASK_SOURCE = "h3-fog-mask";
@@ -93,6 +94,7 @@ export default function VeiloMap({
   const { visited, revealHex, sessionRevealed, districtStates } = useFogOfWarContext();
   const { position } = useGeolocation(true);
 
+  const [mapInstance, setMapInstance] = useState<Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [sectorCard, setSectorCard] = useState<SectorCardData | null>(null);
@@ -271,6 +273,7 @@ export default function VeiloMap({
         if (!map) return;
         installMapLayersRef.current(map);
         map.resize();
+        setMapInstance(map);
         window.setTimeout(() => updateHexLayersRef.current(map!), 50);
         setMapReady(true);
         prevAmoledRef.current = isAmoledRef.current;
@@ -308,6 +311,7 @@ export default function VeiloMap({
       markerRef.current = null;
       map?.remove();
       mapRef.current = null;
+      setMapInstance(null);
       interactionsBoundRef.current = false;
       setMapReady(false);
       prevAmoledRef.current = null;
@@ -342,6 +346,7 @@ export default function VeiloMap({
       applyMkadRestrictions(map);
       installMapLayers(map);
       updateRouteLayer(map, savedRoute);
+      setMapInstance(map);
       map.resize();
     });
   }, [isAmoled, mapReady, installMapLayers, route, updateRouteLayer]);
@@ -483,6 +488,7 @@ export default function VeiloMap({
   return (
     <div className={`relative h-full w-full min-h-[120px] ${className}`}>
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+      {mapInstance && <HexCanvasOverlay map={mapInstance} visited={visited} showGrid={showGrid} />}
 
       {showHeader && (
         <div
