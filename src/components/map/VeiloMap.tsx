@@ -15,8 +15,8 @@ import { useGeolocation } from "../../hooks/useGeolocation";
 import {
   DEFAULT_CENTER,
   DEFAULT_ZOOM,
-  buildFogMask,
   buildNatureWaterLayer,
+  buildViewportFogSheet,
   buildViewportHexLayers,
   cellToPolygonFeature,
   coordsToCell,
@@ -120,9 +120,18 @@ export default function VeiloMap({
   districtCardRef.current = setDistrictCardId;
 
   const updateViewportLayers = useCallback((map: Map) => {
+    if (!map.isStyleLoaded()) return;
+
     const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
     const bounds = mapViewportBounds(map);
     const zoom = map.getZoom();
+
+    try {
+      const fogSheet = buildViewportFogSheet(bounds, MKAD_BOUNDS, zoom);
+      setSourceData(map, FOG_MASK_SOURCE, { type: "FeatureCollection", features: [fogSheet] });
+    } catch (error) {
+      console.warn("[VeiloMap] fog layer failed", error);
+    }
 
     try {
       const { explored, grid, revealed, cells } = buildViewportHexLayers(
@@ -132,14 +141,12 @@ export default function VeiloMap({
         zoom,
         isNatureWaterCell,
       );
-      const fogMask = buildFogMask(bounds, visitedRef.current, MKAD_BOUNDS, zoom, isNatureWaterCell);
-      setSourceData(map, FOG_MASK_SOURCE, { type: "FeatureCollection", features: [fogMask] });
       setSourceData(map, EXPLORED_SOURCE, explored);
       setSourceData(map, GRID_SOURCE, showGridRef.current ? grid : empty);
       setSourceData(map, REVEALED_SOURCE, revealed);
       setSourceData(map, NATURE_SOURCE, buildNatureWaterLayer(cells, isNatureWaterCell));
     } catch (error) {
-      console.warn("[VeiloMap] hex layer update failed", error);
+      console.warn("[VeiloMap] hex grid failed", error);
     }
   }, []);
 
@@ -223,6 +230,13 @@ export default function VeiloMap({
     [updateHexLayers, updateDistrictLayers, updateSelectedLayer, updateRouteLayer],
   );
 
+  const installMapLayersRef = useRef(installMapLayers);
+  const updateHexLayersRef = useRef(updateHexLayers);
+  const scheduleHexUpdateRef = useRef(scheduleHexUpdate);
+  installMapLayersRef.current = installMapLayers;
+  updateHexLayersRef.current = updateHexLayers;
+  scheduleHexUpdateRef.current = scheduleHexUpdate;
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container || mapRef.current) return;
@@ -230,6 +244,7 @@ export default function VeiloMap({
     let map: Map | null = null;
     let cancelled = false;
     let ro: ResizeObserver | null = null;
+    let idleTimer = 0;
 
     const init = () => {
       if (cancelled || mapRef.current) return;
@@ -246,6 +261,7 @@ export default function VeiloMap({
         attributionControl: false,
         maxPitch: 0,
         fadeDuration: 0,
+        validateStyle: false,
       });
 
       applyMkadRestrictions(map);
@@ -253,9 +269,9 @@ export default function VeiloMap({
 
       map.on("load", () => {
         if (!map) return;
-        installMapLayers(map);
+        installMapLayersRef.current(map);
         map.resize();
-        map.once("idle", () => updateHexLayers(map!));
+        window.setTimeout(() => updateHexLayersRef.current(map!), 50);
         setMapReady(true);
         prevAmoledRef.current = isAmoledRef.current;
       });
@@ -263,18 +279,21 @@ export default function VeiloMap({
       map.on("idle", () => {
         if (!map) return;
         map.resize();
-        updateHexLayers(map);
+        window.clearTimeout(idleTimer);
+        idleTimer = window.setTimeout(() => {
+          if (map?.getSource(FOG_MASK_SOURCE)) updateHexLayersRef.current(map);
+        }, 120);
       });
 
-      map.on("moveend", () => scheduleHexUpdate(map!));
-      map.on("zoomend", () => scheduleHexUpdate(map!));
+      map.on("moveend", () => scheduleHexUpdateRef.current(map!));
+      map.on("zoomend", () => scheduleHexUpdateRef.current(map!));
 
       mapRef.current = map;
 
       ro = new ResizeObserver(() => {
         if (!map) return;
         map.resize();
-        if (map.isStyleLoaded()) updateHexLayers(map);
+        scheduleHexUpdateRef.current(map);
       });
       ro.observe(container);
     };
@@ -283,6 +302,7 @@ export default function VeiloMap({
 
     return () => {
       cancelled = true;
+      window.clearTimeout(idleTimer);
       ro?.disconnect();
       markerRef.current?.remove();
       markerRef.current = null;
@@ -292,7 +312,7 @@ export default function VeiloMap({
       setMapReady(false);
       prevAmoledRef.current = null;
     };
-  }, [installMapLayers, updateHexLayers, scheduleHexUpdate, updateDistrictLayers]);
+  }, []);
 
   useEffect(() => {
     ensureNatureWaterLoaded().then(() => {
@@ -564,6 +584,13 @@ function removeMapLayers(map: Map) {
 }
 
 function addMapSources(map: Map) {
+  const seedBounds: MapBounds = {
+    west: DEFAULT_CENTER[0] - 0.05,
+    south: DEFAULT_CENTER[1] - 0.04,
+    east: DEFAULT_CENTER[0] + 0.05,
+    north: DEFAULT_CENTER[1] + 0.04,
+  };
+  const seedFog = buildViewportFogSheet(seedBounds, MKAD_BOUNDS, DEFAULT_ZOOM);
   const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
   map.addSource(OUTSIDE_MKAD_SOURCE, { type: "geojson", data: empty });
@@ -584,12 +611,15 @@ function addMapSources(map: Map) {
     paint: { "fill-color": "#FFE4A8", "fill-opacity": 0.82 },
   });
 
-  map.addSource(FOG_MASK_SOURCE, { type: "geojson", data: empty });
+  map.addSource(FOG_MASK_SOURCE, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [seedFog] },
+  });
   map.addLayer({
     id: FOG_MASK_LAYER,
     type: "fill",
     source: FOG_MASK_SOURCE,
-    paint: { "fill-color": "#B8A4D8", "fill-opacity": 0.85 },
+    paint: { "fill-color": "#B8A4D8", "fill-opacity": 0.88 },
   });
 
   map.addSource(GRID_SOURCE, { type: "geojson", data: empty });
@@ -597,7 +627,7 @@ function addMapSources(map: Map) {
     id: GRID_LINE_LAYER,
     type: "line",
     source: GRID_SOURCE,
-    paint: { "line-color": "#7A4E28", "line-width": 1.6, "line-opacity": 0.92 },
+    paint: { "line-color": "#5C3D1E", "line-width": 2, "line-opacity": 0.95 },
   });
 
   map.addSource(REVEALED_SOURCE, { type: "geojson", data: empty });

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import Icon from "../Icon";
 import MapBottomSheet from "../map/MapBottomSheet";
 import VeiloMap from "../map/VeiloMap";
@@ -15,6 +16,7 @@ export default function MapTab() {
   const { startExploring } = useApp();
   const { progressPct, visitedCount, districtStates, homeDistrict } = useFogOfWarContext();
   const displayPct = districtStates.progress[homeDistrict.id] ?? progressPct;
+  const mapView = useMemo(() => <VeiloMap showHeader />, []);
 
   const goButton = (
     <button
@@ -30,7 +32,7 @@ export default function MapTab() {
   return (
     <MapBottomSheet
       storageKey={SHEET_SNAP_KEY}
-      map={<VeiloMap showHeader />}
+      map={mapView}
       footer={goButton}
       collapsedSummary={
         <div className="flex items-center justify-between py-1">

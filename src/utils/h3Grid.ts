@@ -2,6 +2,7 @@ import {
   cellToBoundary,
   cellToLatLng,
   gridDisk,
+  isValidCell,
   latLngToCell,
 } from "h3-js";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
@@ -319,6 +320,7 @@ export function buildViewportHexLayers(
   }
 
   for (const idx of cells) {
+    if (!isValidCell(idx)) continue;
     if (visited.has(idx)) {
       explored.push(polygonFromRing(idx, { explored: true }));
       revealed.push(polygonFromRing(idx, { visited: true }));
@@ -326,6 +328,7 @@ export function buildViewportHexLayers(
   }
 
   for (const idx of visited) {
+    if (!isValidCell(idx)) continue;
     if (!cellIntersectsBounds(idx, viewport) || cellSet.has(idx)) continue;
     explored.push(polygonFromRing(idx, { explored: true }));
     revealed.push(polygonFromRing(idx, { visited: true }));
@@ -364,8 +367,23 @@ export function buildHexGridLayer(
 }
 
 /**
- * Сплошной туман на весь viewport с «дырками» в исследованных гексах.
- * Не зависит от лимита ячеек — покрывает 100% экрана.
+ * Сплошной лист тумана на весь viewport (без дыр — надёжно на мобильных).
+ * Исследованные гексы перекрывают его слоем explored сверху.
+ */
+export function buildViewportFogSheet(viewport: MapBounds, clip: MapBounds, zoom = 14): Feature<Polygon> {
+  const padded = clampBounds(padBounds(viewport, zoom), clip);
+  return {
+    type: "Feature",
+    properties: {},
+    geometry: {
+      type: "Polygon",
+      coordinates: [viewportOuterRing(padded)],
+    },
+  };
+}
+
+/**
+ * @deprecated Используйте buildViewportFogSheet + explored fill
  */
 export function buildFogMask(
   viewport: MapBounds,
@@ -425,9 +443,9 @@ export function getHexLayerPaint(isAmoled: boolean) {
       fillOpacity: isAmoled ? 0.6 : 0.82,
     },
     grid: {
-      line: isAmoled ? "#C4A8E8" : "#7A4E28",
-      lineOpacity: isAmoled ? 0.75 : 0.92,
-      lineWidth: 1.6,
+      line: isAmoled ? "#E8D4FF" : "#5C3D1E",
+      lineOpacity: isAmoled ? 0.9 : 0.95,
+      lineWidth: 2,
     },
     revealed: {
       line: isAmoled ? "#FF8F5C" : "#E85A2B",

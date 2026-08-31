@@ -2,7 +2,12 @@ import type { StyleSpecification } from "maplibre-gl";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 
-maplibregl.setWorkerUrl(workerUrl);
+/** Абсолютный URL воркера — иначе GeoJSON-слои не рисуются в PWA / Telegram WebView. */
+if (typeof window !== "undefined") {
+  maplibregl.setWorkerUrl(new URL(workerUrl, window.location.href).href);
+} else {
+  maplibregl.setWorkerUrl(workerUrl);
+}
 
 export { maplibregl };
 export type { Map, MapLayerMouseEvent, GeoJSONSource } from "maplibre-gl";

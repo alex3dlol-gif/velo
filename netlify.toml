@@ -6,6 +6,17 @@
   NODE_VERSION = "22.14.0"
   NPM_FLAGS = "--include=optional"
 
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.mjs"
+  [headers.values]
+    Content-Type = "text/javascript"
+    Cache-Control = "public, max-age=31536000, immutable"
+
 [[redirects]]
   from = "/api/osrm/*"
   to = "https://router.project-osrm.org/:splat"
