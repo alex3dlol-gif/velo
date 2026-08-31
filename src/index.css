@@ -1,0 +1,161 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import 'tailwindcss';
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Inter', -apple-system, 'SF Pro Display', system-ui, sans-serif;
+  background: #14100c;
+}
+
+/* ---- Veilo / Outdoor Nav palette --------------------------------------- */
+/* Sunlight Day Mode */
+.app-theme {
+  --bg: #e9e2d4;
+  --bg-2: #ddd3c0;
+  --surface: #f4efe4;
+  --surface-2: #eae2d1;
+  --ink: #000000;
+  --ink-soft: #5c5140;
+  --line: #c3b79c;
+  --line-strong: #9c8d6f;
+  --terracotta: #D95D39;
+  --terracotta-dim: #b84d2f;
+  --amber: #e08a2b;
+  --hex-fog: #cabfa6;
+  --hex-fog-line: #b8ab8d;
+  --hex-open: #f1e8d6;
+  --hex-open-line: #cbbd9e;
+  --map-bg: #ded3bd;
+  --road: #f6f1e6;
+  --water: #c6cdba;
+  --green: #cdd2b0;
+  color-scheme: light;
+}
+
+/* AMOLED Stealth Night Mode */
+.app-theme.amoled {
+  --bg: #000000;
+  --bg-2: #000000;
+  --surface: #0c0a08;
+  --surface-2: #131009;
+  --ink: #f0e9dc;
+  --ink-soft: #8a8072;
+  --line: #23201a;
+  --line-strong: #3a342a;
+  --terracotta: #D95D39;
+  --terracotta-dim: #b84d2f;
+  --amber: #f0a03e;
+  --hex-fog: #0a0806;
+  --hex-fog-line: #171310;
+  --hex-open: #17120b;
+  --hex-open-line: #2e2619;
+  --map-bg: #000000;
+  --road: #241d12;
+  --water: #0c1414;
+  --green: #0e130a;
+  color-scheme: dark;
+}
+
+.font-mono {
+  font-family: 'Inter', -apple-system, 'SF Pro Display', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.scroll-area:hover::-webkit-scrollbar-thumb,
+.scroll-area:active::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  70% { transform: scale(2.4); opacity: 0; }
+  100% { opacity: 0; }
+}
+.gps-pulse {
+  animation: pulse-ring 2.4s ease-out infinite;
+}
+
+.sheet-drag-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.app-theme.amoled .sheet-drag-handle {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* MapLibre overrides */
+.maplibregl-ctrl-attrib {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 9px !important;
+  background: var(--surface) !important;
+  color: var(--ink-soft) !important;
+  border-radius: 6px !important;
+  opacity: 0.85;
+}
+.maplibregl-canvas {
+  outline: none;
+  width: 100% !important;
+  height: 100% !important;
+}
+.maplibregl-map {
+  width: 100%;
+  height: 100%;
+  background: var(--map-bg);
+}
+
+/* User GPS marker */
+.user-marker {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  transform-origin: center center;
+}
+.user-marker__pulse {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: rgba(217, 93, 57, 0.25);
+  animation: pulse-ring 2s ease-out infinite;
+}
+.user-marker__dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: #D95D39;
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35);
+}
+.user-marker__arrow {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  margin-left: -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 8px solid #D95D39;
+}

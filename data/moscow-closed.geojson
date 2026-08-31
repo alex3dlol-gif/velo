@@ -1,0 +1,21 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "landuse": "military", "access": "private" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [37.615, 55.765],
+            [37.62, 55.765],
+            [37.62, 55.77],
+            [37.615, 55.77],
+            [37.615, 55.765]
+          ]
+        ]
+      }
+    }
+  ]
+}

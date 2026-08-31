@@ -1,0 +1,37 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Чертаново Центральное" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [37.58, 55.61],
+            [37.62, 55.61],
+            [37.62, 55.64],
+            [37.58, 55.64],
+            [37.58, 55.61]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Тверской" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [37.59, 55.75],
+            [37.63, 55.75],
+            [37.63, 55.78],
+            [37.59, 55.78],
+            [37.59, 55.75]
+          ]
+        ]
+      }
+    }
+  ]
+}

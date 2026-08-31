@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  revealedHexes    UserHexReveal[]
+  districtProgress UserDistrictProgress[]
+  poiCheckins      POICheckin[]
+  photos           Photo[]
+
+  @@map("users")
+}
+
+model District {
+  id                     String @id @default(cuid())
+  name                   String
+  total_accessible_hexes Int    @default(0) @map("total_accessible_hexes")
+  geometry               Json
+
+  hexes        H3Hex[]
+  userProgress UserDistrictProgress[]
+
+  @@map("districts")
+}
+
+model H3Hex {
+  h3_index      String  @id @map("h3_index")
+  district_id   String  @map("district_id")
+  is_accessible Boolean @default(true) @map("is_accessible")
+
+  district District        @relation(fields: [district_id], references: [id], onDelete: Cascade)
+  reveals  UserHexReveal[]
+  photos   Photo[]
+
+  @@index([district_id])
+  @@map("h3_hexes")
+}
+
+model UserHexReveal {
+  id          String   @id @default(cuid())
+  user_id     String   @map("user_id")
+  h3_index    String   @map("h3_index")
+  revealed_at DateTime @default(now()) @map("revealed_at")
+
+  user User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  hex  H3Hex @relation(fields: [h3_index], references: [h3_index], onDelete: Cascade)
+
+  @@unique([user_id, h3_index])
+  @@map("user_hex_reveals")
+}
+
+model UserDistrictProgress {
+  id              String  @id @default(cuid())
+  user_id         String  @map("user_id")
+  district_id     String  @map("district_id")
+  can_auto_unlock Boolean @default(false) @map("can_auto_unlock")
+
+  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  district District @relation(fields: [district_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, district_id])
+  @@map("user_district_progress")
+}
+
+model POI {
+  id           String  @id @default(cuid())
+  name         String
+  h3_index     String? @map("h3_index")
+  latitude     Float
+  longitude    Float
+  king_user_id String? @map("king_user_id")
+
+  checkins POICheckin[]
+
+  @@map("pois")
+}
+
+model POICheckin {
+  id         String   @id @default(cuid())
+  user_id    String   @map("user_id")
+  poi_id     String   @map("poi_id")
+  checked_at DateTime @default(now()) @map("checked_at")
+  photo_url  String?  @map("photo_url")
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  poi  POI  @relation(fields: [poi_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, poi_id, checked_at])
+  @@map("poi_checkins")
+}
+
+model SectorMeta {
+  h3_index            String   @id @map("h3_index")
+  custom_name         String?  @map("custom_name")
+  category            String?
+  first_discovered_by String?  @map("first_discovered_by")
+  first_discovered_at DateTime? @map("first_discovered_at")
+  discovery_count     Int      @default(0) @map("discovery_count")
+
+  visits SectorVisit[]
+
+  @@map("sector_meta")
+}
+
+model SectorVisit {
+  id         String   @id @default(cuid())
+  user_id    String   @map("user_id")
+  h3_index   String   @map("h3_index")
+  visited_at DateTime @default(now()) @map("visited_at")
+
+  sector SectorMeta @relation(fields: [h3_index], references: [h3_index], onDelete: Cascade)
+
+  @@index([h3_index])
+  @@index([user_id, h3_index])
+  @@map("sector_visits")
+}
+
+model Photo {
+  id         String   @id @default(cuid())
+  user_id    String   @map("user_id")
+  h3_index   String   @map("h3_index")
+  photo_url  String   @map("photo_url")
+  created_at DateTime @default(now()) @map("created_at")
+
+  user User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  hex  H3Hex @relation(fields: [h3_index], references: [h3_index], onDelete: Cascade)
+
+  @@map("photos")
+}

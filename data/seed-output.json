@@ -1,0 +1,746 @@
+[
+  {
+    "name": "Чертаново Центральное",
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            37.58,
+            55.61
+          ],
+          [
+            37.62,
+            55.61
+          ],
+          [
+            37.62,
+            55.64
+          ],
+          [
+            37.58,
+            55.64
+          ],
+          [
+            37.58,
+            55.61
+          ]
+        ]
+      ]
+    },
+    "hexes": [
+      {
+        "h3_index": "8911aa790dbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b65a7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6583ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7967bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa4cb67ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79657ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b653bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79633ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6517ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7904bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa796b3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b65bbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792dbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7960fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79213ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa790cbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7968fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6597ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79293ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7966bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79647ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b652bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79623ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6507ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792cbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa796a3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b65abffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6587ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7965bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79283ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79637ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7904fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79613ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792bbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79297ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7966fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7964bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b652fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79627ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792cfffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa796a7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79603ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b65afffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79287ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7963bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79053ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa796bbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79617ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7929bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79673ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7964fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6533ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79253ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa796cfffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7962bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79043ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa796abffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79607ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b65b3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792d3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b658fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6193ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7928bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79663ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6523ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7961bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792c3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b65a3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79677ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79653ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6537ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7962fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa796afffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792d7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7960bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b65b7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6593ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792b3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7928fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79667ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa79643ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "891181b6527ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7905bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa4cb2fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa792c7ffff",
+        "is_accessible": true
+      }
+    ]
+  },
+  {
+    "name": "Тверской",
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            37.59,
+            55.75
+          ],
+          [
+            37.63,
+            55.75
+          ],
+          [
+            37.63,
+            55.78
+          ],
+          [
+            37.59,
+            55.78
+          ],
+          [
+            37.59,
+            55.75
+          ]
+        ]
+      ]
+    },
+    "hexes": [
+      {
+        "h3_index": "8911aa7abc3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ae2fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a86bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a847ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7aab3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a823ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a947ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a8a3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abd7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abb3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a9c7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a85bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab8fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ad7bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a837ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7aaa3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a8b7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a813ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a95bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abc7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a9dbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a86fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a84bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7aa37ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ad6bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7aab7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a827ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abdbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a803ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a94bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a8a7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab13ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abb7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a9cbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab93ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7aa27ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a83bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a8bbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a817ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7aaa7ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abcbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a873ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ad6fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a84fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab83ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a973ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a8cfffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a82bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a94fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a8abffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a807ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abbbffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a9cfffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab97ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a863ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a81bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abcfffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a91bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a877ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab87ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a853ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a82fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a953ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a8afffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a80bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab1bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a9d3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a90bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab9bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a867ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a843ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7aaafffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab53ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7abd3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a943ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a9c3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a87bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a857ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7ab8bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a97bffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a833ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a957ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a8b3ffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a80fffff",
+        "is_accessible": true
+      },
+      {
+        "h3_index": "8911aa7a9d7ffff",
+        "is_accessible": true
+      }
+    ]
+  }
+]

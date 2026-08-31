@@ -1,0 +1,10 @@
+{
+  "description": "Explore Moscow through immersive bike rides and walks, transforming city navigation into an engaging RPG adventure with gamified exploration features.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
