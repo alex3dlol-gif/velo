@@ -13,8 +13,8 @@ export const MKAD_MAX_BOUNDS: LngLatBoundsLike = [
 /** Центр Москвы внутри МКАД. */
 export const MKAD_CENTER: [number, number] = [37.6173, 55.7558];
 
-/** Минимальный zoom: нельзя отдалиться дальше, чем весь МКАД. */
-export const MKAD_MIN_ZOOM = 10;
+/** Минимальный zoom — дальше гексы слишком мелкие. */
+export const MKAD_MIN_ZOOM = 11;
 
 export const MKAD_MAX_ZOOM = 18;
 

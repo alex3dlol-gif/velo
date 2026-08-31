@@ -16,12 +16,19 @@ const TERRACOTTA = "#D95D39";
 const BOUNDARY_CACHE = new Map<string, [number, number][]>();
 const VIEWPORT_CELL_CACHE = new Map<string, string[]>();
 
-function maxCellsForZoom(zoom: number): number {
-  if (zoom >= 16) return 240;
-  if (zoom >= 14) return 200;
-  if (zoom >= 12) return 140;
-  if (zoom >= 11) return 90;
-  return 60;
+function maxCellsForZoom(zoom: number, resolution = H3_RESOLUTION): number {
+  const scale = resolution <= 8 ? 1.4 : 1;
+  if (zoom >= 16) return Math.round(320 * scale);
+  if (zoom >= 14) return Math.round(240 * scale);
+  if (zoom >= 12) return Math.round(180 * scale);
+  if (zoom >= 11) return Math.round(130 * scale);
+  return Math.round(100 * scale);
+}
+
+/** Крупнее гексы при отдалении — иначе сетка не видна на всём городе. */
+export function resolutionForZoom(zoom: number): number {
+  if (zoom < 12) return 8;
+  return H3_RESOLUTION;
 }
 
 function getCellRing(h3Index: string): [number, number][] {
@@ -184,13 +191,14 @@ export function getCellsForViewport(
   resolution = H3_RESOLUTION,
   zoom = 14,
 ): string[] {
-  const maxCells = maxCellsForZoom(zoom);
-  const cacheKey = `${viewport.west.toFixed(4)}:${viewport.south.toFixed(4)}:${viewport.east.toFixed(4)}:${viewport.north.toFixed(4)}:${zoom}`;
+  const h3Res = resolution === H3_RESOLUTION ? resolutionForZoom(zoom) : resolution;
+  const maxCells = maxCellsForZoom(zoom, h3Res);
+  const cacheKey = `${viewport.west.toFixed(4)}:${viewport.south.toFixed(4)}:${viewport.east.toFixed(4)}:${viewport.north.toFixed(4)}:${zoom}:${h3Res}`;
   const cached = VIEWPORT_CELL_CACHE.get(cacheKey);
   if (cached) return cached;
 
   const cells = filterMkadCells(
-    getCellsForBounds(clampBounds(padBounds(viewport, zoom), clip), viewport, clip, resolution, maxCells),
+    getCellsForBounds(clampBounds(padBounds(viewport, zoom), clip), viewport, clip, h3Res, maxCells),
   );
 
   if (cells.length > 0) {
@@ -299,21 +307,21 @@ export function buildViewportHexLayers(
   revealed: FeatureCollection<Polygon>;
   cells: string[];
 } {
-  const cells = getCellsForViewport(viewport, clip, H3_RESOLUTION, zoom);
+  const h3Res = resolutionForZoom(zoom);
+  const cells = getCellsForViewport(viewport, clip, h3Res, zoom);
   const cellSet = new Set(cells);
-  const fog: Feature<Polygon>[] = [];
   const explored: Feature<Polygon>[] = [];
   const grid: Feature[] = [];
   const revealed: Feature<Polygon>[] = [];
 
   for (const idx of cells) {
     grid.push(cellToGridLineFeature(idx));
+  }
+
+  for (const idx of cells) {
     if (visited.has(idx)) {
-      const feature = polygonFromRing(idx, { explored: true });
-      explored.push(feature);
+      explored.push(polygonFromRing(idx, { explored: true }));
       revealed.push(polygonFromRing(idx, { visited: true }));
-    } else if (!isAutoRevealed(idx)) {
-      fog.push(polygonFromRing(idx, { fog: true }));
     }
   }
 
@@ -321,10 +329,11 @@ export function buildViewportHexLayers(
     if (!cellIntersectsBounds(idx, viewport) || cellSet.has(idx)) continue;
     explored.push(polygonFromRing(idx, { explored: true }));
     revealed.push(polygonFromRing(idx, { visited: true }));
+    grid.push(cellToGridLineFeature(idx));
   }
 
   return {
-    fog: { type: "FeatureCollection", features: fog },
+    fog: { type: "FeatureCollection", features: [] },
     explored: { type: "FeatureCollection", features: explored },
     grid: { type: "FeatureCollection", features: grid },
     revealed: { type: "FeatureCollection", features: revealed },
@@ -354,7 +363,10 @@ export function buildHexGridLayer(
   return buildViewportHexLayers(viewport, new Set(), clip, zoom).grid;
 }
 
-/** @deprecated Используйте buildFogCellsLayer */
+/**
+ * Сплошной туман на весь viewport с «дырками» в исследованных гексах.
+ * Не зависит от лимита ячеек — покрывает 100% экрана.
+ */
 export function buildFogMask(
   viewport: MapBounds,
   visited: ReadonlySet<string>,
@@ -362,12 +374,17 @@ export function buildFogMask(
   zoom = 14,
   isAutoRevealed: (h3Index: string) => boolean = () => false,
 ): Feature<Polygon> {
-  const cells = getCellsForViewport(viewport, clip, H3_RESOLUTION, zoom);
   const holes: [number, number][][] = [];
 
+  for (const idx of visited) {
+    if (!cellIntersectsBounds(idx, viewport)) continue;
+    holes.push(reverseRing(getCellRing(idx)));
+  }
+
+  const cells = getCellsForViewport(viewport, clip, resolutionForZoom(zoom), zoom);
   for (const idx of cells) {
-    if (!visited.has(idx) && !isAutoRevealed(idx)) continue;
-    holes.push(reverseRing(cellToBoundary(idx, true)));
+    if (!isAutoRevealed(idx)) continue;
+    holes.push(reverseRing(getCellRing(idx)));
   }
 
   const padded = clampBounds(padBounds(viewport, zoom), clip);
@@ -401,16 +418,16 @@ export function getHexLayerPaint(isAmoled: boolean) {
   return {
     fog: {
       fill: isAmoled ? "#1e1438" : "#B8A4D8",
-      fillOpacity: isAmoled ? 0.86 : 0.78,
+      fillOpacity: isAmoled ? 0.92 : 0.85,
     },
     explored: {
       fill: isAmoled ? "#3d2810" : "#FFE4A8",
       fillOpacity: isAmoled ? 0.6 : 0.82,
     },
     grid: {
-      line: isAmoled ? "#8B7AA8" : "#9A6B42",
-      lineOpacity: isAmoled ? 0.65 : 0.88,
-      lineWidth: 1.35,
+      line: isAmoled ? "#C4A8E8" : "#7A4E28",
+      lineOpacity: isAmoled ? 0.75 : 0.92,
+      lineWidth: 1.6,
     },
     revealed: {
       line: isAmoled ? "#FF8F5C" : "#E85A2B",

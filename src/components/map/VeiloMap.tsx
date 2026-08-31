@@ -15,6 +15,7 @@ import { useGeolocation } from "../../hooks/useGeolocation";
 import {
   DEFAULT_CENTER,
   DEFAULT_ZOOM,
+  buildFogMask,
   buildNatureWaterLayer,
   buildViewportHexLayers,
   cellToPolygonFeature,
@@ -103,6 +104,7 @@ export default function VeiloMap({
   const [districtName, setDistrictName] = useState("Москва");
   const hasCenteredOnUserRef = useRef(false);
   const hexUpdateRafRef = useRef(0);
+  const interactionsBoundRef = useRef(false);
 
   const visitedRef = useRef(visited);
   const showGridRef = useRef(showGrid);
@@ -123,14 +125,15 @@ export default function VeiloMap({
     const zoom = map.getZoom();
 
     try {
-      const { fog, explored, grid, revealed, cells } = buildViewportHexLayers(
+      const { explored, grid, revealed, cells } = buildViewportHexLayers(
         bounds,
         visitedRef.current,
         MKAD_BOUNDS,
         zoom,
         isNatureWaterCell,
       );
-      setSourceData(map, FOG_MASK_SOURCE, fog);
+      const fogMask = buildFogMask(bounds, visitedRef.current, MKAD_BOUNDS, zoom, isNatureWaterCell);
+      setSourceData(map, FOG_MASK_SOURCE, { type: "FeatureCollection", features: [fogMask] });
       setSourceData(map, EXPLORED_SOURCE, explored);
       setSourceData(map, GRID_SOURCE, showGridRef.current ? grid : empty);
       setSourceData(map, REVEALED_SOURCE, revealed);
@@ -212,7 +215,10 @@ export default function VeiloMap({
       updateDistrictLayers(map);
       updateSelectedLayer(map, selectedHexRef.current);
       updateRouteLayer(map, null);
-      bindHexInteractions(map, sectorCardRef, selectHexRef, visitedRef, districtCardRef, districtStatesRef);
+      if (!interactionsBoundRef.current) {
+        bindHexInteractions(map, sectorCardRef, selectHexRef, visitedRef, districtCardRef, districtStatesRef);
+        interactionsBoundRef.current = true;
+      }
     },
     [updateHexLayers, updateDistrictLayers, updateSelectedLayer, updateRouteLayer],
   );
@@ -282,6 +288,7 @@ export default function VeiloMap({
       markerRef.current = null;
       map?.remove();
       mapRef.current = null;
+      interactionsBoundRef.current = false;
       setMapReady(false);
       prevAmoledRef.current = null;
     };
@@ -323,6 +330,8 @@ export default function VeiloMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
     updateHexLayers(map);
+    const timer = window.setTimeout(() => updateHexLayers(map), 250);
+    return () => window.clearTimeout(timer);
   }, [visited, showGrid, mapReady, updateHexLayers]);
 
   useEffect(() => {
@@ -580,7 +589,7 @@ function addMapSources(map: Map) {
     id: FOG_MASK_LAYER,
     type: "fill",
     source: FOG_MASK_SOURCE,
-    paint: { "fill-color": "#B8A4D8", "fill-opacity": 0.78 },
+    paint: { "fill-color": "#B8A4D8", "fill-opacity": 0.85 },
   });
 
   map.addSource(GRID_SOURCE, { type: "geojson", data: empty });
@@ -588,7 +597,7 @@ function addMapSources(map: Map) {
     id: GRID_LINE_LAYER,
     type: "line",
     source: GRID_SOURCE,
-    paint: { "line-color": "#9A6B42", "line-width": 1.35, "line-opacity": 0.88 },
+    paint: { "line-color": "#7A4E28", "line-width": 1.6, "line-opacity": 0.92 },
   });
 
   map.addSource(REVEALED_SOURCE, { type: "geojson", data: empty });
