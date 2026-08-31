@@ -4,7 +4,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { getDistrictZoneColor } from "../../constants/districtColors";
 import { MKAD_BOUNDS } from "../../constants/mkad";
 import { getDistrictIdForCell } from "../../utils/districtGeometry";
-import { buildViewportHexLayers, getCellRingCoords, type MapBounds } from "../../utils/h3Grid";
+import { getCellRingCoords, getViewportCellBuckets, type MapBounds } from "../../utils/h3Grid";
 import { isNatureWaterCell } from "../../utils/natureReveals";
 
 type HexCanvasOverlayProps = {
@@ -14,21 +14,21 @@ type HexCanvasOverlayProps = {
 };
 
 const DEFAULT_FOG = "#B8A4D8";
-const GRID_LIGHT = "rgba(92, 61, 30, 0.55)";
-const GRID_DARK = "rgba(232, 212, 255, 0.45)";
+const GRID_LIGHT = "rgba(92, 61, 30, 0.45)";
+const GRID_DARK = "rgba(232, 212, 255, 0.35)";
 const REVEALED_STROKE = "rgba(232, 90, 43, 0.85)";
 const NATURE_STROKE = "rgba(46, 159, 214, 0.7)";
-const FOG_ALPHA_LIGHT = 0.46;
-const FOG_ALPHA_DARK = 0.56;
-const FOG_STROKE_LIGHT = "rgba(92, 61, 30, 0.22)";
-const FOG_STROKE_DARK = "rgba(232, 212, 255, 0.2)";
+const FOG_ALPHA_LIGHT = 0.42;
+const FOG_ALPHA_DARK = 0.52;
+const FOG_BLEND = 0.55;
+
+const fogColorCache = new Map<string, string>();
 
 function mapBounds(map: Map): MapBounds {
   const b = map.getBounds();
   return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
 }
 
-/** Синхронизируем буфер overlay 1:1 с canvas MapLibre — иначе сетка «сжимается» в полоску сверху. */
 function syncCanvasToMap(map: Map, canvas: HTMLCanvasElement): { cssW: number; cssH: number; dpr: number } {
   const mapCanvas = map.getCanvas();
   const cssW = mapCanvas.clientWidth;
@@ -51,31 +51,36 @@ function syncCanvasToMap(map: Map, canvas: HTMLCanvasElement): { cssW: number; c
   return { cssW, cssH, dpr };
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
+function blendHex(a: string, b: string, t: number): string {
+  const parse = (hex: string) => {
+    const h = hex.replace("#", "");
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)] as const;
+  };
+  const [ar, ag, ab] = parse(a);
+  const [br, bg, bb] = parse(b);
+  const r = Math.round(ar * (1 - t) + br * t);
+  const g = Math.round(ag * (1 - t) + bg * t);
+  const bl = Math.round(ab * (1 - t) + bb * t);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${bl.toString(16).padStart(2, "0")}`;
 }
 
 function fogColorForCell(h3Index: string, isAmoled: boolean): string {
   const districtId = getDistrictIdForCell(h3Index);
-  const base = districtId ? getDistrictZoneColor(districtId) : DEFAULT_FOG;
+  const cacheKey = `${districtId ?? "default"}:${isAmoled ? "d" : "l"}`;
+  const cached = fogColorCache.get(cacheKey);
+  if (cached) return cached;
+
+  const district = districtId ? getDistrictZoneColor(districtId) : DEFAULT_FOG;
+  const blended = blendHex(district, DEFAULT_FOG, FOG_BLEND);
+  const h = blended.replace("#", "");
   const alpha = isAmoled ? FOG_ALPHA_DARK : FOG_ALPHA_LIGHT;
-  return hexToRgba(base, alpha);
+  const color = `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${alpha})`;
+  fogColorCache.set(cacheKey, color);
+  return color;
 }
 
-function drawRing(
-  ctx: CanvasRenderingContext2D,
-  map: Map,
-  ring: [number, number][],
-  fill: string,
-  stroke?: string,
-  lineWidth = 2,
-) {
+function appendRing(ctx: CanvasRenderingContext2D, map: Map, ring: [number, number][]) {
   if (ring.length < 3) return;
-  ctx.beginPath();
   const first = map.project(ring[0]!);
   ctx.moveTo(first.x, first.y);
   for (let i = 1; i < ring.length; i++) {
@@ -83,32 +88,26 @@ function drawRing(
     ctx.lineTo(p.x, p.y);
   }
   ctx.closePath();
-  if (fill) {
-    ctx.fillStyle = fill;
-    ctx.fill();
-  }
-  if (stroke) {
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = lineWidth;
-    ctx.stroke();
-  }
 }
 
-function drawLine(
+function fillCells(ctx: CanvasRenderingContext2D, map: Map, indices: string[], fill: string) {
+  if (!indices.length) return;
+  ctx.beginPath();
+  for (const idx of indices) appendRing(ctx, map, getCellRingCoords(idx));
+  ctx.fillStyle = fill;
+  ctx.fill("evenodd");
+}
+
+function strokeCells(
   ctx: CanvasRenderingContext2D,
   map: Map,
-  coords: [number, number][],
+  indices: string[],
   stroke: string,
   lineWidth: number,
 ) {
-  if (coords.length < 2) return;
+  if (!indices.length) return;
   ctx.beginPath();
-  const first = map.project(coords[0]!);
-  ctx.moveTo(first.x, first.y);
-  for (let i = 1; i < coords.length; i++) {
-    const p = map.project(coords[i]!);
-    ctx.lineTo(p.x, p.y);
-  }
+  for (const idx of indices) appendRing(ctx, map, getCellRingCoords(idx));
   ctx.strokeStyle = stroke;
   ctx.lineWidth = lineWidth;
   ctx.stroke();
@@ -116,6 +115,7 @@ function drawLine(
 
 export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef(0);
   const { isAmoled } = useTheme();
   const visitedRef = useRef(visited);
   const showGridRef = useRef(showGrid);
@@ -141,7 +141,7 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
     const visitedSet = visitedRef.current;
 
     try {
-      const { fog, grid, cells } = buildViewportHexLayers(
+      const { cells, fog, revealed } = getViewportCellBuckets(
         bounds,
         visitedSet,
         MKAD_BOUNDS,
@@ -149,40 +149,41 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
         isNatureWaterCell,
       );
 
-      for (const feature of fog.features) {
-        const h3Index = feature.properties?.h3Index as string;
-        const ring = feature.geometry.coordinates[0] as [number, number][];
-        const fogFill = fogColorForCell(h3Index, isAmoled);
-        const fogStroke = isAmoled ? FOG_STROKE_DARK : FOG_STROKE_LIGHT;
-        drawRing(ctx, map, ring, fogFill, fogStroke, 0.8);
+      const fogByColor = new Map<string, string[]>();
+      for (const idx of fog) {
+        const color = fogColorForCell(idx, isAmoled);
+        const bucket = fogByColor.get(color);
+        if (bucket) bucket.push(idx);
+        else fogByColor.set(color, [idx]);
+      }
+      for (const [color, indices] of fogByColor) {
+        fillCells(ctx, map, indices, color);
       }
 
       if (showGridRef.current) {
-        for (const feature of grid.features) {
-          if (feature.geometry.type !== "LineString") continue;
-          drawLine(ctx, map, feature.geometry.coordinates as [number, number][], gridColor, 1.5);
-        }
+        strokeCells(ctx, map, cells, gridColor, 1);
       }
 
-      for (const idx of cells) {
-        if (!visitedSet.has(idx) && !isNatureWaterCell(idx)) continue;
-        const ring = getCellRingCoords(idx);
-        if (isNatureWaterCell(idx)) {
-          drawRing(ctx, map, ring, "", NATURE_STROKE, 1.5);
-        } else {
-          drawRing(ctx, map, ring, "", REVEALED_STROKE, 2);
-        }
+      const visitedCells: string[] = [];
+      const natureCells: string[] = [];
+      for (const idx of revealed) {
+        if (isNatureWaterCell(idx)) natureCells.push(idx);
+        else visitedCells.push(idx);
       }
-
-      for (const idx of visitedSet) {
-        if (cells.includes(idx)) continue;
-        const ring = getCellRingCoords(idx);
-        drawRing(ctx, map, ring, "", REVEALED_STROKE, 2);
-      }
+      strokeCells(ctx, map, visitedCells, REVEALED_STROKE, 1.8);
+      strokeCells(ctx, map, natureCells, NATURE_STROKE, 1.2);
     } catch (error) {
       console.warn("[HexCanvasOverlay] draw failed", error);
     }
   }, [map, isAmoled]);
+
+  const schedulePaint = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = 0;
+      paint();
+    });
+  }, [paint]);
 
   useEffect(() => {
     if (!map || !canvasRef.current) return;
@@ -195,22 +196,21 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
 
     paint();
 
-    map.on("move", paint);
-    map.on("zoom", paint);
-    map.on("resize", paint);
-    map.on("render", paint);
+    map.on("move", schedulePaint);
+    map.on("zoom", schedulePaint);
+    map.on("resize", schedulePaint);
 
     return () => {
-      map.off("move", paint);
-      map.off("zoom", paint);
-      map.off("resize", paint);
-      map.off("render", paint);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      map.off("move", schedulePaint);
+      map.off("zoom", schedulePaint);
+      map.off("resize", schedulePaint);
     };
-  }, [map, paint]);
+  }, [map, paint, schedulePaint]);
 
   useEffect(() => {
-    paint();
-  }, [visited, showGrid, paint]);
+    schedulePaint();
+  }, [visited, showGrid, schedulePaint]);
 
   return <canvas ref={canvasRef} aria-hidden />;
 }

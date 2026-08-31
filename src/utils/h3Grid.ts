@@ -18,14 +18,14 @@ const TERRACOTTA = "#D95D39";
 const BOUNDARY_CACHE = new Map<string, [number, number][]>();
 const VIEWPORT_CELL_CACHE = new Map<string, string[]>();
 
-const VIEWPORT_CELL_HARD_CAP = 2200;
+const VIEWPORT_CELL_HARD_CAP = 520;
 
 function maxCellsForZoom(zoom: number): number {
-  if (zoom >= 16) return 900;
-  if (zoom >= 14) return 700;
-  if (zoom >= 12) return 500;
-  if (zoom >= 11) return 380;
-  return 280;
+  if (zoom >= 16) return 480;
+  if (zoom >= 14) return 400;
+  if (zoom >= 12) return 300;
+  if (zoom >= 11) return 220;
+  return 180;
 }
 
 /** Всегда res 9 — иначе сетка и visited-гексы не совпадают. */
@@ -377,6 +377,35 @@ export function buildViewportHexLayers(
     revealed: { type: "FeatureCollection", features: revealed },
     cells,
   };
+}
+
+/** Лёгкий список ячеек для canvas — без GeoJSON. */
+export function getViewportCellBuckets(
+  viewport: MapBounds,
+  visited: ReadonlySet<string>,
+  clip: MapBounds,
+  zoom = 14,
+  isAutoRevealed: (h3Index: string) => boolean = () => false,
+): { cells: string[]; fog: string[]; revealed: string[] } {
+  const h3Res = resolutionForZoom(zoom);
+  const cells = getCellsForViewport(viewport, clip, h3Res, zoom);
+  const cellSet = new Set(cells);
+  const fog: string[] = [];
+  const revealed: string[] = [];
+
+  for (const idx of cells) {
+    if (!isValidCell(idx)) continue;
+    if (visited.has(idx) || isAutoRevealed(idx)) revealed.push(idx);
+    else fog.push(idx);
+  }
+
+  for (const idx of visited) {
+    if (!isValidCell(idx)) continue;
+    if (!cellIntersectsBounds(idx, viewport) || cellSet.has(idx)) continue;
+    revealed.push(idx);
+  }
+
+  return { cells, fog, revealed };
 }
 
 /**
