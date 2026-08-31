@@ -18,8 +18,10 @@ const GRID_LIGHT = "rgba(92, 61, 30, 0.55)";
 const GRID_DARK = "rgba(232, 212, 255, 0.45)";
 const REVEALED_STROKE = "rgba(232, 90, 43, 0.85)";
 const NATURE_STROKE = "rgba(46, 159, 214, 0.7)";
-const FOG_ALPHA_LIGHT = 0.68;
-const FOG_ALPHA_DARK = 0.78;
+const FOG_ALPHA_LIGHT = 0.46;
+const FOG_ALPHA_DARK = 0.56;
+const FOG_STROKE_LIGHT = "rgba(92, 61, 30, 0.22)";
+const FOG_STROKE_DARK = "rgba(232, 212, 255, 0.2)";
 
 function mapBounds(map: Map): MapBounds {
   const b = map.getBounds();
@@ -150,7 +152,9 @@ export default function HexCanvasOverlay({ map, visited, showGrid }: HexCanvasOv
       for (const feature of fog.features) {
         const h3Index = feature.properties?.h3Index as string;
         const ring = feature.geometry.coordinates[0] as [number, number][];
-        drawRing(ctx, map, ring, fogColorForCell(h3Index, isAmoled));
+        const fogFill = fogColorForCell(h3Index, isAmoled);
+        const fogStroke = isAmoled ? FOG_STROKE_DARK : FOG_STROKE_LIGHT;
+        drawRing(ctx, map, ring, fogFill, fogStroke, 0.8);
       }
 
       if (showGridRef.current) {

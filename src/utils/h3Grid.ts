@@ -4,6 +4,7 @@ import {
   gridDisk,
   isValidCell,
   latLngToCell,
+  polygonToCells,
 } from "h3-js";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { H3_RESOLUTION } from "../constants/h3";
@@ -17,12 +18,14 @@ const TERRACOTTA = "#D95D39";
 const BOUNDARY_CACHE = new Map<string, [number, number][]>();
 const VIEWPORT_CELL_CACHE = new Map<string, string[]>();
 
+const VIEWPORT_CELL_HARD_CAP = 2200;
+
 function maxCellsForZoom(zoom: number): number {
-  if (zoom >= 16) return 420;
-  if (zoom >= 14) return 320;
-  if (zoom >= 12) return 240;
-  if (zoom >= 11) return 180;
-  return 140;
+  if (zoom >= 16) return 900;
+  if (zoom >= 14) return 700;
+  if (zoom >= 12) return 500;
+  if (zoom >= 11) return 380;
+  return 280;
 }
 
 /** Всегда res 9 — иначе сетка и visited-гексы не совпадают. */
@@ -164,24 +167,53 @@ function isInsideBounds(lat: number, lng: number, bounds: MapBounds): boolean {
   return lng >= bounds.west && lng <= bounds.east && lat >= bounds.south && lat <= bounds.north;
 }
 
-/** Быстрая выборка ячеек по равномерной сетке lat/lng. */
-export function getCellsInBounds(bounds: MapBounds, resolution = H3_RESOLUTION, maxCells = 140): string[] {
-  const cells = new Set<string>();
-  const target = Math.max(maxCells, 80);
-  const rows = Math.max(10, Math.ceil(Math.sqrt(target * 1.4)));
-  const cols = rows;
-  const latStep = (bounds.north - bounds.south) / rows || 0.001;
-  const lngStep = (bounds.east - bounds.west) / cols || 0.001;
+function prioritizeCells(cells: string[], bounds: MapBounds, limit: number): string[] {
+  if (cells.length <= limit) return cells;
+  const centerLat = (bounds.north + bounds.south) / 2;
+  const centerLng = (bounds.east + bounds.west) / 2;
+  return [...cells]
+    .sort((a, b) => {
+      const [latA, lngA] = cellToLatLng(a);
+      const [latB, lngB] = cellToLatLng(b);
+      const dA = (latA - centerLat) ** 2 + (lngA - centerLng) ** 2;
+      const dB = (latB - centerLat) ** 2 + (lngB - centerLng) ** 2;
+      return dA - dB;
+    })
+    .slice(0, limit);
+}
 
-  for (let r = 0; r <= rows; r++) {
-    for (let c = 0; c <= cols; c++) {
-      const lat = bounds.south + r * latStep;
-      const lng = bounds.west + c * lngStep;
-      cells.add(latLngToCell(lat, lng, resolution));
+/** Все H3-ячейки, пересекающие bounds — сплошная сотка без дыр. */
+export function getCellsInBounds(bounds: MapBounds, resolution = H3_RESOLUTION, maxCells = 140): string[] {
+  try {
+    const polygon = boundsToRing(bounds);
+    let cells = filterMkadCells(polygonToCells(polygon, resolution));
+    cells = cells.filter((idx) => cellIntersectsBounds(idx, bounds));
+    if (cells.length > 0) {
+      const cap = Math.min(VIEWPORT_CELL_HARD_CAP, Math.max(maxCells * 3, 400));
+      return cells.length <= cap ? cells : prioritizeCells(cells, bounds, cap);
+    }
+  } catch {
+    /* dense fallback below */
+  }
+
+  const cells = new Set<string>();
+  const latSpan = Math.max(bounds.north - bounds.south, 0.0005);
+  const lngSpan = Math.max(bounds.east - bounds.west, 0.0005);
+  const steps = Math.max(16, Math.ceil(Math.sqrt(maxCells * 2.5)));
+  const latStep = latSpan / steps;
+  const lngStep = lngSpan / steps;
+
+  for (let lat = bounds.south; lat <= bounds.north + latStep * 0.5; lat += latStep) {
+    for (let lng = bounds.west; lng <= bounds.east + lngStep * 0.5; lng += lngStep) {
+      const origin = latLngToCell(lat, lng, resolution);
+      cells.add(origin);
+      for (const neighbor of gridDisk(origin, 1)) cells.add(neighbor);
     }
   }
 
-  return filterMkadCells([...cells]).slice(0, target);
+  const result = filterMkadCells([...cells]);
+  const cap = Math.min(VIEWPORT_CELL_HARD_CAP, Math.max(maxCells * 3, 400));
+  return result.length <= cap ? result : prioritizeCells(result, bounds, cap);
 }
 
 /**
