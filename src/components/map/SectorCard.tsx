@@ -122,18 +122,23 @@ export default function SectorCard({ data, onClose, onBuildRoute, routeLoading }
 
         <button
           onClick={() => onBuildRoute(data.h3Index)}
-          disabled={routeLoading || !data.accessible}
+          disabled={routeLoading || !data.routable}
           className="mt-4 w-full rounded-xl py-3.5 font-mono text-[12px] font-bold uppercase tracking-widest transition active:scale-[.98] disabled:opacity-60"
           style={{ background: "var(--terracotta)", color: "#fff" }}
         >
-          {!data.accessible
+          {!data.routable
             ? data.isNature
               ? "Не исследуется"
-              : "Сектор недоступен"
+              : "Вне зоны МКАД"
             : routeLoading
               ? "Построение…"
               : routeLabel}
         </button>
+        {!data.accessible && data.routable && data.inaccessibleReason && (
+          <p className="font-mono text-[10px] mt-2 text-center leading-snug" style={{ color: "var(--ink-soft)" }}>
+            {data.inaccessibleReason} — маршрут можно построить, но сектор не откроется
+          </p>
+        )}
       </div>
     </div>
   );

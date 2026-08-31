@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MKAD_CENTER } from "../constants/mkad";
 
 export type GeoPosition = {
   lat: number;
@@ -14,17 +15,17 @@ type GeoState = {
   loading: boolean;
 };
 
-const DEFAULT_POSITION: GeoPosition = {
-  lat: 55.629,
-  lng: 37.606,
-  accuracy: 12,
+const FALLBACK_POSITION: GeoPosition = {
+  lat: MKAD_CENTER[1],
+  lng: MKAD_CENTER[0],
+  accuracy: 999,
   heading: null,
   speed: null,
 };
 
 export function useGeolocation(enabled = true) {
   const [state, setState] = useState<GeoState>({
-    position: DEFAULT_POSITION,
+    position: null,
     error: null,
     loading: true,
   });
@@ -32,7 +33,7 @@ export function useGeolocation(enabled = true) {
 
   useEffect(() => {
     if (!enabled || !navigator.geolocation) {
-      setState({ position: DEFAULT_POSITION, error: null, loading: false });
+      setState({ position: FALLBACK_POSITION, error: null, loading: false });
       return;
     }
 
@@ -52,7 +53,7 @@ export function useGeolocation(enabled = true) {
 
     const onError = (err: GeolocationPositionError) => {
       setState((prev) => ({
-        position: prev.position ?? DEFAULT_POSITION,
+        position: prev.position ?? FALLBACK_POSITION,
         error: err.message,
         loading: false,
       }));

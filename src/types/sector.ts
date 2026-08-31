@@ -26,6 +26,7 @@ export type SectorCardData = {
   h3Index: string;
   visited: boolean;
   accessible: boolean;
+  routable: boolean;
   isNature?: boolean;
   statusLabel?: string;
   inaccessibleReason?: string;

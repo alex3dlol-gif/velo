@@ -8,31 +8,25 @@ type MapFabProps = {
 
 export default function MapFab({ showGrid, onToggleGrid, onLocate }: MapFabProps) {
   return (
-    <div className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
+    <div
+      className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2.5"
+      style={{ right: "max(0.75rem, var(--safe-right))" }}
+    >
       <button
         onClick={onToggleGrid}
-        className="w-11 h-11 rounded-xl flex items-center justify-center transition active:scale-95"
-        style={{
-          background: showGrid ? "var(--terracotta)" : "var(--surface)",
-          color: showGrid ? "#fff" : "var(--ink)",
-          border: `1.5px solid ${showGrid ? "var(--terracotta)" : "var(--line-strong)"}`,
-          boxShadow: "0 4px 14px -4px rgba(0,0,0,.35)",
-        }}
-        aria-label="Слои карты"
+        className="map-fab-btn"
+        data-active={showGrid}
+        aria-label="Туман войны"
         aria-pressed={showGrid}
-        title="Сетка H3"
+        title="Туман войны"
       >
-        <Icon name="layers" size={20} />
+        <span className="text-base leading-none" aria-hidden>
+          {showGrid ? "🌫" : "🗺"}
+        </span>
       </button>
       <button
         onClick={onLocate}
-        className="w-11 h-11 rounded-xl flex items-center justify-center transition active:scale-95"
-        style={{
-          background: "var(--surface)",
-          color: "var(--terracotta)",
-          border: "1.5px solid var(--line-strong)",
-          boxShadow: "0 4px 14px -4px rgba(0,0,0,.35)",
-        }}
+        className="map-fab-btn"
         aria-label="Моё местоположение"
         title="Моё местоположение"
       >

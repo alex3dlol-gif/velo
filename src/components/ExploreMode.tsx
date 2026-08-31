@@ -73,7 +73,7 @@ function ExploreModeContent() {
           </div>
         }
         panel={
-          <div className="h-full flex flex-col px-4 pt-2 pb-4" style={{ background: "var(--surface)" }}>
+          <div className="h-full flex flex-col px-4 pt-2" style={{ background: "var(--surface)", paddingBottom: "var(--safe-bottom)", paddingLeft: "var(--safe-left)", paddingRight: "var(--safe-right)" }}>
             <div className="grid grid-cols-3 gap-2">
               <Metric label="км/ч" value={speedKmh.toFixed(1)} big accent />
               <Metric label="км" value={dist.toFixed(2)} big />

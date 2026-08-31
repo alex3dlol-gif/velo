@@ -1,9 +1,12 @@
 import type { Feature, FeatureCollection, LineString, Point, Polygon } from "geojson";
 import { cellToLatLng, polygonToCells } from "h3-js";
 import { GAME_DISTRICTS, getDistrictById, getDistrictIdForCoords, isInsideMkad, type GameDistrict } from "../constants/districts";
+import { getDistrictZoneColor } from "../constants/districtColors";
+import { isInsideMkadRing } from "../constants/mkadPolygon";
 import type { MapBounds } from "../types/map";
 import { H3_RESOLUTION } from "../constants/h3";
 import { isNatureWaterCell } from "./natureReveals";
+import { getUnlockOrder } from "./homeDistrict";
 import type { DistrictStates } from "./districtProgress";
 
 function boundsToRing(bounds: MapBounds): [number, number][] {
@@ -43,7 +46,7 @@ export const DISTRICT_PLAYABLE_CELLS = new Map<string, string[]>();
 for (const district of GAME_DISTRICTS) {
   try {
     const cells = polygonToCells(boundsToRing(district.bounds), H3_RESOLUTION).filter(
-      (idx) => getDistrictIdForCell(idx) === district.id && !isNatureWaterCell(idx),
+      (idx) => getDistrictIdForCell(idx) === district.id && !isNatureWaterCell(idx) && isInsideMkadRing(...cellToLatLng(idx)),
     );
     DISTRICT_PLAYABLE_CELLS.set(district.id, cells);
     district.totalHexes = cells.length || district.totalHexes;
@@ -78,6 +81,8 @@ export function buildDistrictBoundaries(states: DistrictStates): FeatureCollecti
       unlocked: states.unlocked[district.id],
       progress: states.progress[district.id] ?? 0,
       locked: !states.unlocked[district.id],
+      zoneColor: getDistrictZoneColor(district.id),
+      isHome: district.id === states.homeDistrictId,
     },
     geometry: {
       type: "Polygon",
@@ -123,12 +128,16 @@ export function buildDistrictLabels(states: DistrictStates): FeatureCollection<P
 
     let statusLine: string;
     if (unlocked) {
-      statusLine = `${progress}%`;
-    } else if (district.unlockAfter) {
-      const req = getDistrictById(district.unlockAfter.districtId);
-      statusLine = `🔒 ${req?.shortName ?? ""}`;
+      statusLine = district.id === states.homeDistrictId ? `🏠 ${progress}%` : `✦ ${progress}%`;
     } else {
-      statusLine = "🔒";
+      const order = getUnlockOrder(states.homeDistrictId);
+      const idx = order.indexOf(district.id);
+      if (idx > 0) {
+        const req = getDistrictById(order[idx - 1]!);
+        statusLine = `🔒 ${req?.shortName ?? ""}`;
+      } else {
+        statusLine = "🔒";
+      }
     }
 
     return {
@@ -139,6 +148,8 @@ export function buildDistrictLabels(states: DistrictStates): FeatureCollection<P
         statusLine,
         unlocked,
         progress,
+        isHome: district.id === states.homeDistrictId,
+        zoneColor: getDistrictZoneColor(district.id),
         textAnchor: anchorToTextAnchor(district.labelAnchor),
         textJustify: anchorToTextJustify(district.labelAnchor),
         textOffsetX: anchorToTextOffset(district.labelAnchor)[0],

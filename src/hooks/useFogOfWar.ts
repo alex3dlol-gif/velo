@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getSeedVisitedCells } from "../utils/h3Grid";
 import { computeDistrictStates } from "../utils/districtProgress";
 import { isCellExplorable } from "../utils/cellPlayability";
 import { recordSectorVisit } from "../utils/sectorStats";
-import { GAME_DISTRICTS } from "../constants/districts";
+import { getDistrictById } from "../constants/districts";
 import { vibrateNewHex } from "../utils/haptics";
 import { queueHexReveal } from "../features/tracking/offlineHexQueue";
+import type { GeoPosition } from "./useGeolocation";
+import { useHomeDistrictId } from "./useHomeDistrictId";
 
 const STORAGE_KEY = "veilo-visited-hexes";
 
@@ -14,12 +15,12 @@ function loadVisited(): Set<string> {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as string[];
-      if (Array.isArray(parsed) && parsed.length > 0) return new Set(parsed);
+      if (Array.isArray(parsed)) return new Set(parsed);
     }
   } catch {
     /* ignore */
   }
-  return new Set(getSeedVisitedCells());
+  return new Set();
 }
 
 function saveVisited(hexes: Set<string>) {
@@ -30,10 +31,11 @@ function saveVisited(hexes: Set<string>) {
   }
 }
 
-export function useFogOfWar() {
+export function useFogOfWar(position: GeoPosition | null) {
   const [visited, setVisited] = useState<Set<string>>(loadVisited);
   const [flashing, setFlashing] = useState<Set<string>>(new Set());
   const [sessionRevealed, setSessionRevealed] = useState(0);
+  const homeDistrictId = useHomeDistrictId(position);
 
   const resetSession = useCallback(() => setSessionRevealed(0), []);
 
@@ -41,45 +43,51 @@ export function useFogOfWar() {
     saveVisited(visited);
   }, [visited]);
 
-  const revealHex = useCallback((h3Index: string): boolean => {
-    let isNew = false;
-    setVisited((prev) => {
-      const states = computeDistrictStates(prev);
-      if (!isCellExplorable(h3Index, states)) return prev;
-      if (prev.has(h3Index)) return prev;
-      isNew = true;
-      const next = new Set(prev);
-      next.add(h3Index);
-      return next;
-    });
+  const districtStates = useMemo(
+    () => computeDistrictStates(visited, homeDistrictId),
+    [visited, homeDistrictId],
+  );
 
-    if (isNew) {
-      vibrateNewHex();
-      if (!navigator.onLine) void queueHexReveal(h3Index);
-      recordSectorVisit(h3Index, true);
-      setSessionRevealed((n) => n + 1);
-      setFlashing((prev) => new Set(prev).add(h3Index));
-      window.setTimeout(() => {
-        setFlashing((prev) => {
-          const next = new Set(prev);
-          next.delete(h3Index);
-          return next;
-        });
-      }, 900);
-    }
+  const homeDistrict = useMemo(
+    () => getDistrictById(homeDistrictId) ?? getDistrictById("hamovniki")!,
+    [homeDistrictId],
+  );
 
-    return isNew;
-  }, []);
+  const revealHex = useCallback(
+    (h3Index: string): boolean => {
+      let isNew = false;
+      setVisited((prev) => {
+        const states = computeDistrictStates(prev, homeDistrictId);
+        if (!isCellExplorable(h3Index, states)) return prev;
+        if (prev.has(h3Index)) return prev;
+        isNew = true;
+        const next = new Set(prev);
+        next.add(h3Index);
+        return next;
+      });
+
+      if (isNew) {
+        vibrateNewHex();
+        if (!navigator.onLine) void queueHexReveal(h3Index);
+        recordSectorVisit(h3Index, true);
+        setSessionRevealed((n) => n + 1);
+        setFlashing((prev) => new Set(prev).add(h3Index));
+        window.setTimeout(() => {
+          setFlashing((prev) => {
+            const next = new Set(prev);
+            next.delete(h3Index);
+            return next;
+          });
+        }, 900);
+      }
+
+      return isNew;
+    },
+    [homeDistrictId],
+  );
 
   const visitedCount = visited.size;
-
-  const progressPct = useMemo(() => {
-    const states = computeDistrictStates(visited);
-    const home = GAME_DISTRICTS[0];
-    return states.progress[home.id] ?? 0;
-  }, [visited]);
-
-  const districtStates = useMemo(() => computeDistrictStates(visited), [visited]);
+  const progressPct = districtStates.progress[homeDistrictId] ?? 0;
 
   return {
     visited,
@@ -87,6 +95,8 @@ export function useFogOfWar() {
     visitedCount,
     sessionRevealed,
     progressPct,
+    homeDistrict,
+    homeDistrictId,
     revealHex,
     resetSession,
     isVisited: (h3Index: string) => visited.has(h3Index),

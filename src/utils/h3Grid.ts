@@ -3,15 +3,51 @@ import {
   cellToLatLng,
   gridDisk,
   latLngToCell,
-  polygonToCells,
 } from "h3-js";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { H3_RESOLUTION } from "../constants/h3";
+import { isInsideMkadRing } from "../constants/mkadPolygon";
+import { MKAD_CENTER, MKAD_DEFAULT_ZOOM } from "../constants/mkad";
 import type { MapBounds } from "../types/map";
 
 export { H3_RESOLUTION } from "../constants/h3";
 export type { MapBounds } from "../types/map";
 const TERRACOTTA = "#D95D39";
+const BOUNDARY_CACHE = new Map<string, [number, number][]>();
+const VIEWPORT_CELL_CACHE = new Map<string, string[]>();
+
+function maxCellsForZoom(zoom: number): number {
+  if (zoom >= 16) return 180;
+  if (zoom >= 14) return 140;
+  if (zoom >= 12) return 100;
+  if (zoom >= 11) return 70;
+  return 45;
+}
+
+function getCellRing(h3Index: string): [number, number][] {
+  const cached = BOUNDARY_CACHE.get(h3Index);
+  if (cached) return cached;
+
+  const boundary = cellToBoundary(h3Index, true);
+  const ring =
+    boundary.length > 1 &&
+    boundary[0]![0] === boundary[boundary.length - 1]![0] &&
+    boundary[0]![1] === boundary[boundary.length - 1]![1]
+      ? boundary
+      : ([...boundary, boundary[0]!] as [number, number][]);
+
+  if (BOUNDARY_CACHE.size > 4000) BOUNDARY_CACHE.clear();
+  BOUNDARY_CACHE.set(h3Index, ring);
+  return ring;
+}
+
+function polygonFromRing(h3Index: string, properties: Record<string, unknown> = {}): Feature<Polygon> {
+  return {
+    type: "Feature",
+    properties: { h3Index, ...properties },
+    geometry: { type: "Polygon", coordinates: [getCellRing(h3Index)] },
+  };
+}
 
 /** Padding ~1.2 km at z14 — scales up when zoomed out to avoid edge gaps. */
 const VIEWPORT_PAD_LAT = 0.011;
@@ -76,8 +112,13 @@ function reverseRing(ring: [number, number][]): [number, number][] {
   return closeRing(body);
 }
 
-function isInsideBounds(lat: number, lng: number, bounds: MapBounds): boolean {
-  return lng >= bounds.west && lng <= bounds.east && lat >= bounds.south && lat <= bounds.north;
+function isCellInsideMkad(h3Index: string): boolean {
+  const [lat, lng] = cellToLatLng(h3Index);
+  return isInsideMkadRing(lat, lng);
+}
+
+function filterMkadCells(indices: string[]): string[] {
+  return indices.filter(isCellInsideMkad);
 }
 
 function cellIntersectsBounds(h3Index: string, bounds: MapBounds): boolean {
@@ -89,9 +130,28 @@ function cellIntersectsBounds(h3Index: string, bounds: MapBounds): boolean {
   return false;
 }
 
-/** Returns H3 indices for a bounding box polygon. */
-export function getCellsInBounds(bounds: MapBounds, resolution = H3_RESOLUTION): string[] {
-  return polygonToCells(boundsToRing(bounds), resolution);
+function isInsideBounds(lat: number, lng: number, bounds: MapBounds): boolean {
+  return lng >= bounds.west && lng <= bounds.east && lat >= bounds.south && lat <= bounds.north;
+}
+
+/** Быстрая выборка ячеек по сетке lat/lng — без polygonToCells. */
+export function getCellsInBounds(bounds: MapBounds, resolution = H3_RESOLUTION, maxCells = 140): string[] {
+  const cells = new Set<string>();
+  const rows = Math.max(4, Math.ceil(Math.sqrt(maxCells)));
+  const cols = rows;
+  const latStep = (bounds.north - bounds.south) / rows || 0.001;
+  const lngStep = (bounds.east - bounds.west) / cols || 0.001;
+
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      const lat = bounds.south + r * latStep;
+      const lng = bounds.west + c * lngStep;
+      if (!isInsideMkadRing(lat, lng)) continue;
+      cells.add(latLngToCell(lat, lng, resolution));
+    }
+  }
+
+  return [...cells];
 }
 
 /**
@@ -104,7 +164,18 @@ export function getCellsForViewport(
   resolution = H3_RESOLUTION,
   zoom = 14,
 ): string[] {
-  return getCellsForBounds(clampBounds(padBounds(viewport, zoom), clip), viewport, clip, resolution, zoom);
+  const maxCells = maxCellsForZoom(zoom);
+  const cacheKey = `${viewport.west.toFixed(4)}:${viewport.south.toFixed(4)}:${viewport.east.toFixed(4)}:${viewport.north.toFixed(4)}:${zoom}`;
+  const cached = VIEWPORT_CELL_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  const cells = filterMkadCells(
+    getCellsForBounds(clampBounds(padBounds(viewport, zoom), clip), viewport, clip, resolution, maxCells),
+  );
+
+  if (VIEWPORT_CELL_CACHE.size > 24) VIEWPORT_CELL_CACHE.clear();
+  VIEWPORT_CELL_CACHE.set(cacheKey, cells);
+  return cells;
 }
 
 /** All H3 cells in the padded viewport — includes areas outside MKAD. */
@@ -121,30 +192,27 @@ function getCellsForBounds(
   viewport: MapBounds,
   clip: MapBounds | null,
   resolution = H3_RESOLUTION,
-  zoom = 14,
+  maxCells = 140,
 ): string[] {
-  const cells = new Set(getCellsInBounds(query, resolution));
+  const cells = new Set(getCellsInBounds(query, resolution, maxCells));
 
   const edgeSamples: [number, number][] = [
     [viewport.north, viewport.west],
     [viewport.north, viewport.east],
     [viewport.south, viewport.west],
     [viewport.south, viewport.east],
-    [viewport.north, (viewport.west + viewport.east) / 2],
-    [viewport.south, (viewport.west + viewport.east) / 2],
-    [(viewport.north + viewport.south) / 2, viewport.west],
-    [(viewport.north + viewport.south) / 2, viewport.east],
-    [(viewport.north + viewport.south) / 2, (viewport.west + viewport.east) / 2],
   ];
 
   for (const [lat, lng] of edgeSamples) {
     if (clip && !isInsideBounds(lat, lng, clip)) continue;
+    if (!isInsideMkadRing(lat, lng)) continue;
     const origin = latLngToCell(lat, lng, resolution);
     cells.add(origin);
     for (const neighbor of gridDisk(origin, 1)) cells.add(neighbor);
   }
 
-  return [...cells];
+  const list = [...cells];
+  return list.length > maxCells * 1.25 ? list.slice(0, maxCells) : list;
 }
 
 /** Converts lat/lng to H3 index at resolution 9. */
@@ -162,18 +230,7 @@ export function cellToPolygonFeature(
   h3Index: string,
   properties: Record<string, unknown> = {},
 ): Feature<Polygon> {
-  const boundary = cellToBoundary(h3Index, true);
-  const ring =
-    boundary.length > 1 &&
-    boundary[0][0] === boundary[boundary.length - 1][0] &&
-    boundary[0][1] === boundary[boundary.length - 1][1]
-      ? boundary
-      : [...boundary, boundary[0]];
-  return {
-    type: "Feature",
-    properties: { h3Index, ...properties },
-    geometry: { type: "Polygon", coordinates: [ring] },
-  };
+  return polygonFromRing(h3Index, properties);
 }
 
 /** Splits visible cells into fog (unvisited) and revealed (visited) GeoJSON collections. */
@@ -201,9 +258,76 @@ export function buildHexLayers(
   };
 }
 
+/** Один проход: туман, сетка, заливка и границы исследованных гексов. */
+export function buildViewportHexLayers(
+  viewport: MapBounds,
+  visited: ReadonlySet<string>,
+  clip: MapBounds,
+  zoom = 14,
+  isAutoRevealed: (h3Index: string) => boolean = () => false,
+): {
+  fog: FeatureCollection<Polygon>;
+  explored: FeatureCollection<Polygon>;
+  grid: FeatureCollection<Polygon>;
+  revealed: FeatureCollection<Polygon>;
+  cells: string[];
+} {
+  const cells = getCellsForViewport(viewport, clip, H3_RESOLUTION, zoom);
+  const cellSet = new Set(cells);
+  const fog: Feature<Polygon>[] = [];
+  const explored: Feature<Polygon>[] = [];
+  const grid: Feature<Polygon>[] = [];
+  const revealed: Feature<Polygon>[] = [];
+
+  for (const idx of cells) {
+    grid.push(polygonFromRing(idx, { grid: true }));
+    if (visited.has(idx)) {
+      const feature = polygonFromRing(idx, { explored: true });
+      explored.push(feature);
+      revealed.push(polygonFromRing(idx, { visited: true }));
+    } else if (!isAutoRevealed(idx)) {
+      fog.push(polygonFromRing(idx, { fog: true }));
+    }
+  }
+
+  for (const idx of visited) {
+    if (!cellIntersectsBounds(idx, viewport) || cellSet.has(idx)) continue;
+    explored.push(polygonFromRing(idx, { explored: true }));
+    revealed.push(polygonFromRing(idx, { visited: true }));
+  }
+
+  return {
+    fog: { type: "FeatureCollection", features: fog },
+    explored: { type: "FeatureCollection", features: explored },
+    grid: { type: "FeatureCollection", features: grid },
+    revealed: { type: "FeatureCollection", features: revealed },
+    cells,
+  };
+}
+
 /**
- * Single fog veil: viewport rectangle with holes for visited & auto-revealed (water) hexes.
+ * Туман войны: заливка неисследованных гексов внутри МКАД.
  */
+export function buildFogCellsLayer(
+  viewport: MapBounds,
+  visited: ReadonlySet<string>,
+  clip: MapBounds,
+  zoom = 14,
+  isAutoRevealed: (h3Index: string) => boolean = () => false,
+): FeatureCollection<Polygon> {
+  return buildViewportHexLayers(viewport, visited, clip, zoom, isAutoRevealed).fog;
+}
+
+/** Контуры всех гексов в viewport (сетка H3). */
+export function buildHexGridLayer(
+  viewport: MapBounds,
+  clip: MapBounds,
+  zoom = 14,
+): FeatureCollection<Polygon> {
+  return buildViewportHexLayers(viewport, new Set(), clip, zoom).grid;
+}
+
+/** @deprecated Используйте buildFogCellsLayer */
 export function buildFogMask(
   viewport: MapBounds,
   visited: ReadonlySet<string>,
@@ -211,21 +335,16 @@ export function buildFogMask(
   zoom = 14,
   isAutoRevealed: (h3Index: string) => boolean = () => false,
 ): Feature<Polygon> {
-  const padded = clampBounds(padBounds(viewport, zoom), clip);
-  const outer = viewportOuterRing(padded);
-  const holes: [number, number][][] = [];
   const cells = getCellsForViewport(viewport, clip, H3_RESOLUTION, zoom);
-  const cellSet = new Set(cells);
+  const holes: [number, number][][] = [];
 
   for (const idx of cells) {
     if (!visited.has(idx) && !isAutoRevealed(idx)) continue;
     holes.push(reverseRing(cellToBoundary(idx, true)));
   }
 
-  for (const idx of visited) {
-    if (!cellIntersectsBounds(idx, padded) || cellSet.has(idx)) continue;
-    holes.push(reverseRing(cellToBoundary(idx, true)));
-  }
+  const padded = clampBounds(padBounds(viewport, zoom), clip);
+  const outer = viewportOuterRing(padded);
 
   return {
     type: "Feature",
@@ -245,44 +364,61 @@ export function buildNatureWaterLayer(
   const features: Feature<Polygon>[] = [];
   for (const idx of cellIndices) {
     if (!isWater(idx)) continue;
-    features.push(cellToPolygonFeature(idx, { nature: "water" }));
+    features.push(polygonFromRing(idx, { nature: "water" }));
   }
   return { type: "FeatureCollection", features };
 }
 
-/** Demo seed: a small cluster of pre-revealed hexes around Chertanovo. */
-export function getSeedVisitedCells(): string[] {
-  const origin = latLngToCell(55.629, 37.606, H3_RESOLUTION);
-  return gridDisk(origin, 4);
-}
-
-/** MapLibre paint — honest fog of war masking. */
+/** MapLibre paint — игровой fog-of-war. */
 export function getHexLayerPaint(isAmoled: boolean) {
   return {
     fog: {
-      fill: isAmoled ? "#000000" : "#EFECE6",
-      fillOpacity: isAmoled ? 1.0 : 0.95,
+      fill: isAmoled ? "#1e1438" : "#C9B8E8",
+      fillOpacity: isAmoled ? 0.82 : 0.68,
+    },
+    explored: {
+      fill: isAmoled ? "#3d2810" : "#FFE9B8",
+      fillOpacity: isAmoled ? 0.55 : 0.72,
+    },
+    grid: {
+      line: isAmoled ? "#6B5B8A" : "#C49A6C",
+      lineOpacity: isAmoled ? 0.45 : 0.7,
+      lineWidth: 1.1,
     },
     revealed: {
-      line: "#D95D39",
-      lineOpacity: 0.6,
-      lineWidth: 1.5,
+      line: isAmoled ? "#FF8F5C" : "#E85A2B",
+      lineOpacity: isAmoled ? 0.85 : 0.9,
+      lineWidth: 2,
     },
     selected: {
-      line: "#D95D39",
-      lineWidth: 3,
+      line: "#FFBE0B",
+      lineWidth: 3.5,
+      fill: isAmoled ? "rgba(255, 190, 11, 0.22)" : "rgba(255, 190, 11, 0.35)",
     },
     nature: {
-      line: "#5B9BD5",
-      lineOpacity: 0.55,
-      lineWidth: 1.5,
+      line: isAmoled ? "#5BC0EB" : "#2E9FD6",
+      lineOpacity: 0.75,
+      lineWidth: 2,
     },
     district: {
-      unlockedLine: "#D95D39",
-      lockedLine: isAmoled ? "#9CA3AF" : "#6B7280",
-      lineWidth: 2.5,
-      lockedFill: isAmoled ? "#111111" : "#E5E7EB",
-      lockedFillOpacity: isAmoled ? 0.4 : 0.28,
+      unlockedLine: isAmoled ? "#FF8F5C" : "#D95D39",
+      lockedLine: isAmoled ? "#7A6B9A" : "#9B8AB8",
+      lineWidth: 3,
+      lockedFill: isAmoled ? "#1a1030" : "#B8A8D8",
+      lockedFillOpacity: isAmoled ? 0.35 : 0.22,
+      unlockedFillOpacity: isAmoled ? 0.28 : 0.2,
+    },
+    outside: {
+      fill: isAmoled ? "#05030a" : "#2A1B45",
+      fillOpacity: isAmoled ? 0.88 : 0.78,
+    },
+    mkad: {
+      line: isAmoled ? "#FFBE0B" : "#FFB84D",
+      lineWidth: 3,
+    },
+    route: {
+      line: isAmoled ? "#FFBE0B" : "#D95D39",
+      lineWidth: 5,
     },
     accent: TERRACOTTA,
   };
@@ -294,8 +430,8 @@ export const MAP_STYLES = {
   dark: "inline",
 } as const;
 
-/** Default map center: Chertanovo Central, Moscow (inside MKAD). */
-export const DEFAULT_CENTER: [number, number] = [37.606, 55.629];
-export const DEFAULT_ZOOM = 14;
+/** Default map center — центр Москвы до получения GPS. */
+export const DEFAULT_CENTER: [number, number] = MKAD_CENTER;
+export const DEFAULT_ZOOM = MKAD_DEFAULT_ZOOM;
 
 export { MKAD_BOUNDS, MKAD_CENTER, MKAD_DEFAULT_ZOOM } from "../constants/mkad";

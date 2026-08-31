@@ -27,11 +27,18 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 async function readFunctionError(error: unknown): Promise<string> {
   if (error instanceof FunctionsHttpError) {
     try {
-      const payload = (await error.context.json()) as { error?: string };
+      const payload = (await error.context.json()) as { error?: string; message?: string };
       if (payload?.error) return payload.error;
+      if (payload?.message) return payload.message;
     } catch {
-      /* ignore */
+      try {
+        const text = await error.context.text();
+        if (text) return text;
+      } catch {
+        /* ignore */
+      }
     }
+    return error.message || "Ошибка Edge Function";
   }
   if (error instanceof Error) return error.message;
   return "Ошибка входа через Telegram";

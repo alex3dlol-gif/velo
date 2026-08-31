@@ -13,9 +13,8 @@ const SHEET_SNAP_KEY = "veilo-map-sheet-snap";
 
 export default function MapTab() {
   const { startExploring } = useApp();
-  const { progressPct, visitedCount, districtStates } = useFogOfWarContext();
-  const home = GAME_DISTRICTS[0];
-  const displayPct = progressPct || districtStates.progress[home.id] || 0;
+  const { progressPct, visitedCount, districtStates, homeDistrict } = useFogOfWarContext();
+  const displayPct = districtStates.progress[homeDistrict.id] ?? progressPct;
 
   const goButton = (
     <button
@@ -36,7 +35,7 @@ export default function MapTab() {
       collapsedSummary={
         <div className="flex items-center justify-between py-1">
           <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--ink-soft)" }}>
-            {home.shortName} · {displayPct}%
+            {homeDistrict.shortName} · {displayPct}%
           </span>
           <SectorMetric value={formatSectorCount(visitedCount)} />
         </div>
@@ -51,7 +50,7 @@ export default function MapTab() {
       <div className="mt-3 rounded-xl border p-3.5" style={{ borderColor: "var(--line)", background: "var(--surface-2)" }}>
         <div className="flex items-baseline justify-between">
           <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--ink-soft)" }}>
-            {home.name}
+            {homeDistrict.name}
           </span>
           <span className="font-mono text-[26px] font-extrabold leading-none" style={{ color: "var(--ink)" }}>
             {displayPct}

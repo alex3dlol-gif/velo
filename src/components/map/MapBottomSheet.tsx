@@ -101,7 +101,7 @@ export default function MapBottomSheet({
           {isExpanded ? children : (collapsedSummary ?? null)}
         </div>
 
-        <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 16 }}>
+        <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: "max(1rem, var(--safe-bottom))", paddingLeft: "var(--safe-left)", paddingRight: "var(--safe-right)" }}>
           {footer}
         </div>
       </div>

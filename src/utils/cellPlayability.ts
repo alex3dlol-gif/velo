@@ -1,3 +1,5 @@
+import { cellToLatLng } from "h3-js";
+import { isInsideMkad } from "../constants/districts";
 import { isNatureWaterCell, NATURE_WATER_LABEL } from "./natureReveals";
 import { getDistrictById } from "../constants/districts";
 import { getUnlockHint } from "./districtProgress";
@@ -34,8 +36,14 @@ export function isCellExplorable(h3Index: string, states: DistrictStates): boole
   return getFullCellAccess(h3Index, states).status === "playable";
 }
 
+/** Можно построить маршрут (внутри МКАД, не вода). */
+export function isCellRoutable(h3Index: string): boolean {
+  if (isNatureWaterCell(h3Index)) return false;
+  const [lat, lng] = cellToLatLng(h3Index);
+  return isInsideMkad(lat, lng);
+}
+
 /** Можно построить маршрут и засчитать визит. */
 export function isCellInteractive(h3Index: string, states: DistrictStates): boolean {
-  const access = getFullCellAccess(h3Index, states);
-  return access.status === "playable";
+  return isCellRoutable(h3Index) && isDistrictCellPlayable(h3Index, states);
 }

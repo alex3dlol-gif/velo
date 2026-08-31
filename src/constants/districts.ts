@@ -1,5 +1,6 @@
 import type { MapBounds } from "../types/map";
 import { MKAD_BOUNDS, MKAD_CENTER } from "./mkad";
+import { isInsideMkadRing } from "./mkadPolygon";
 
 export const DISTRICT_UNLOCK_THRESHOLD = 80;
 
@@ -19,8 +20,13 @@ export type GameDistrict = {
   unlockAfter: { districtId: string; thresholdPct: number } | null;
 };
 
-const LNG_SPLITS = [37.369, 37.485, 37.601, 37.717, 37.834] as const;
-const LAT_SPLITS = [55.574, 55.685, 55.796, 55.908] as const;
+const LNG_SPLITS = splitLine(MKAD_BOUNDS.west, MKAD_BOUNDS.east, 4);
+const LAT_SPLITS = splitLine(MKAD_BOUNDS.south, MKAD_BOUNDS.north, 3);
+
+function splitLine(min: number, max: number, parts: number): number[] {
+  const step = (max - min) / parts;
+  return Array.from({ length: parts + 1 }, (_, i) => min + step * i);
+}
 
 type GridCell = {
   id: string;
@@ -180,10 +186,5 @@ export function getDistrictByGrid(col: number, row: number): GameDistrict | unde
 }
 
 export function isInsideMkad(lat: number, lng: number): boolean {
-  return (
-    lng >= MKAD_BOUNDS.west &&
-    lng <= MKAD_BOUNDS.east &&
-    lat >= MKAD_BOUNDS.south &&
-    lat <= MKAD_BOUNDS.north
-  );
+  return isInsideMkadRing(lat, lng);
 }

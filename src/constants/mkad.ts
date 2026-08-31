@@ -1,13 +1,9 @@
 import type { LngLatBoundsLike, Map } from "maplibre-gl";
 import type { MapBounds } from "../types/map";
+import { isInsideMkadRing, MKAD_POLYGON_BOUNDS } from "./mkadPolygon";
 
-/** MKAD bounding box — запас ~500 м внутрь кольца. */
-export const MKAD_BOUNDS: MapBounds = {
-  west: 37.369,
-  south: 55.574,
-  east: 37.834,
-  north: 55.908,
-};
+/** MKAD bounding box — по полигону кольца. */
+export const MKAD_BOUNDS: MapBounds = { ...MKAD_POLYGON_BOUNDS };
 
 export const MKAD_MAX_BOUNDS: LngLatBoundsLike = [
   [MKAD_BOUNDS.west, MKAD_BOUNDS.south],
@@ -24,13 +20,16 @@ export const MKAD_MAX_ZOOM = 18;
 
 export const MKAD_DEFAULT_ZOOM = 14;
 
-/** Ограничивает координаты рамкой МКАД. */
+/** Ограничивает координаты рамкой МКАД (bbox). */
 export function clampToMkad(lng: number, lat: number): [number, number] {
   return [
     Math.max(MKAD_BOUNDS.west, Math.min(MKAD_BOUNDS.east, lng)),
     Math.max(MKAD_BOUNDS.south, Math.min(MKAD_BOUNDS.north, lat)),
   ];
 }
+
+/** Точка внутри кольца МКАД (полигон, не bbox). */
+export { isInsideMkadRing };
 
 /** Пересечение видимой области карты с МКАД. */
 export function intersectWithMkad(bounds: MapBounds): MapBounds | null {

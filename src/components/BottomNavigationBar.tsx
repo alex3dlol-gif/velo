@@ -14,8 +14,14 @@ export default function BottomNavigationBar() {
 
   return (
     <nav
-      className="relative z-20 grid grid-cols-5 shrink-0 px-2 pt-2 pb-3"
-      style={{ background: "var(--surface)", borderTop: "1px solid var(--line)" }}
+      className="relative z-20 grid grid-cols-5 shrink-0 px-2 pt-2"
+      style={{
+        background: "var(--surface)",
+        borderTop: "1px solid var(--line)",
+        paddingBottom: "var(--safe-bottom)",
+        paddingLeft: "var(--safe-left)",
+        paddingRight: "var(--safe-right)",
+      }}
     >
       {ITEMS.map((it) => {
         const active = activeTab === it.id;

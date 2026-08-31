@@ -15,18 +15,17 @@ import { useGeolocation } from "../../hooks/useGeolocation";
 import {
   DEFAULT_CENTER,
   DEFAULT_ZOOM,
-  buildFogMask,
-  buildHexLayers,
   buildNatureWaterLayer,
+  buildViewportHexLayers,
   cellToPolygonFeature,
   coordsToCell,
-  getCellsForViewport,
   getHexLayerPaint,
   type MapBounds,
 } from "../../utils/h3Grid";
 import { getDistrictForCell, getDistrictForCoords } from "../../utils/districtGeometry";
 import { MKAD_BOUNDS, applyMkadRestrictions, clampToMkad } from "../../constants/mkad";
-import { getFullCellAccess, isCellInteractive } from "../../utils/cellPlayability";
+import { buildOutsideMkadMask, MKAD_RING } from "../../constants/mkadPolygon";
+import { getFullCellAccess, isCellInteractive, isCellRoutable } from "../../utils/cellPlayability";
 import { ensureNatureWaterLoaded, isNatureWaterCell } from "../../utils/natureReveals";
 import {
   buildDistrictBoundaries,
@@ -41,6 +40,14 @@ import MapFab from "./MapFab";
 
 const FOG_MASK_LAYER = "h3-fog-mask";
 const FOG_MASK_SOURCE = "h3-fog-mask";
+const EXPLORED_SOURCE = "h3-explored";
+const EXPLORED_FILL_LAYER = "h3-explored-fill";
+const GRID_SOURCE = "h3-grid";
+const GRID_LINE_LAYER = "h3-grid-line";
+const OUTSIDE_MKAD_SOURCE = "outside-mkad";
+const OUTSIDE_MKAD_LAYER = "outside-mkad-fill";
+const MKAD_RING_SOURCE = "mkad-ring";
+const MKAD_RING_LAYER = "mkad-ring-line";
 const NATURE_SOURCE = "nature-water";
 const NATURE_LINE_LAYER = "nature-water-line";
 const DISTRICT_SOURCE = "districts";
@@ -48,6 +55,8 @@ const DISTRICT_LABELS_SOURCE = "district-labels";
 const DISTRICT_LEADERS_SOURCE = "district-leaders";
 const DISTRICT_BOUNDARY_UNLOCKED = "district-boundary-unlocked";
 const DISTRICT_BOUNDARY_LOCKED = "district-boundary-locked";
+const DISTRICT_UNLOCKED_FILL = "district-unlocked-fill";
+const DISTRICT_LOCKED_FILL = "district-locked-fill";
 const DISTRICT_LABEL_HIT_LAYER = "district-label-hit";
 const DISTRICT_LABEL_LAYER = "district-labels";
 const DISTRICT_LEADER_LAYER = "district-leader-lines";
@@ -92,7 +101,9 @@ export default function VeiloMap({
   const [route, setRoute] = useState<RouteGeoJSON | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [districtCardId, setDistrictCardId] = useState<string | null>(null);
-  const [districtName, setDistrictName] = useState("Чертаново Центральное");
+  const [districtName, setDistrictName] = useState("Москва");
+  const hasCenteredOnUserRef = useRef(false);
+  const hexUpdateRafRef = useRef(0);
 
   const visitedRef = useRef(visited);
   const showGridRef = useRef(showGrid);
@@ -107,56 +118,44 @@ export default function VeiloMap({
   selectHexRef.current = setSelectedHex;
   districtCardRef.current = setDistrictCardId;
 
-  const updateFogMask = useCallback((map: Map) => {
-    if (!map.getSource(FOG_MASK_SOURCE)) return;
+  const updateViewportLayers = useCallback((map: Map) => {
+    const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
     if (!showGridRef.current) {
-      setSourceData(map, FOG_MASK_SOURCE, { type: "FeatureCollection", features: [] });
+      setSourceData(map, FOG_MASK_SOURCE, empty);
+      setSourceData(map, EXPLORED_SOURCE, empty);
+      setSourceData(map, GRID_SOURCE, empty);
+      setSourceData(map, REVEALED_SOURCE, empty);
+      setSourceData(map, NATURE_SOURCE, empty);
       return;
     }
 
-    const b = map.getBounds();
-    const bounds: MapBounds = {
-      west: b.getWest(),
-      south: b.getSouth(),
-      east: b.getEast(),
-      north: b.getNorth(),
-    };
+    const bounds = mapViewportBounds(map);
+    const zoom = map.getZoom();
 
     try {
-      const mask = buildFogMask(
+      const { fog, explored, grid, revealed, cells } = buildViewportHexLayers(
         bounds,
         visitedRef.current,
         MKAD_BOUNDS,
-        map.getZoom(),
+        zoom,
         isNatureWaterCell,
       );
-      setSourceData(map, FOG_MASK_SOURCE, { type: "FeatureCollection", features: [mask] });
+      setSourceData(map, FOG_MASK_SOURCE, fog);
+      setSourceData(map, EXPLORED_SOURCE, explored);
+      setSourceData(map, GRID_SOURCE, grid);
+      setSourceData(map, REVEALED_SOURCE, revealed);
+      setSourceData(map, NATURE_SOURCE, buildNatureWaterLayer(cells, isNatureWaterCell));
     } catch {
       /* skip */
     }
   }, []);
 
-  const updateNatureLayer = useCallback((map: Map) => {
-    if (!map.getSource(NATURE_SOURCE)) return;
-
-    if (!showGridRef.current) {
-      setSourceData(map, NATURE_SOURCE, { type: "FeatureCollection", features: [] });
-      return;
-    }
-
-    const b = map.getBounds();
-    const bounds: MapBounds = {
-      west: b.getWest(),
-      south: b.getSouth(),
-      east: b.getEast(),
-      north: b.getNorth(),
-    };
-
+  const updateOutsideMkadMask = useCallback((map: Map) => {
+    if (!map.getSource(OUTSIDE_MKAD_SOURCE)) return;
     try {
-      const cells = getCellsForViewport(bounds, MKAD_BOUNDS, undefined, map.getZoom());
-      const layer = buildNatureWaterLayer(cells, isNatureWaterCell);
-      setSourceData(map, NATURE_SOURCE, layer);
+      const mask = buildOutsideMkadMask(mapViewportBounds(map));
+      setSourceData(map, OUTSIDE_MKAD_SOURCE, { type: "FeatureCollection", features: [mask] });
     } catch {
       /* skip */
     }
@@ -174,39 +173,25 @@ export default function VeiloMap({
     }
   }, []);
 
-  const updateRevealedBorders = useCallback((map: Map) => {
-    if (!map.getSource(REVEALED_SOURCE)) return;
-
-    if (!showGridRef.current) {
-      setSourceData(map, REVEALED_SOURCE, { type: "FeatureCollection", features: [] });
-      return;
-    }
-
-    const b = map.getBounds();
-    const bounds: MapBounds = {
-      west: b.getWest(),
-      south: b.getSouth(),
-      east: b.getEast(),
-      north: b.getNorth(),
-    };
-
-    try {
-      const cells = getCellsForViewport(bounds, MKAD_BOUNDS, undefined, map.getZoom());
-      const { revealed } = buildHexLayers(cells, visitedRef.current);
-      setSourceData(map, REVEALED_SOURCE, revealed);
-    } catch {
-      /* skip */
-    }
-  }, []);
+  const scheduleHexUpdate = useCallback(
+    (map: Map) => {
+      cancelAnimationFrame(hexUpdateRafRef.current);
+      hexUpdateRafRef.current = requestAnimationFrame(() => {
+        if (!map.getSource(FOG_MASK_SOURCE)) return;
+        updateOutsideMkadMask(map);
+        updateViewportLayers(map);
+      });
+    },
+    [updateOutsideMkadMask, updateViewportLayers],
+  );
 
   const updateHexLayers = useCallback(
     (map: Map) => {
-      updateFogMask(map);
-      updateNatureLayer(map);
+      updateOutsideMkadMask(map);
+      updateViewportLayers(map);
       updateDistrictLayers(map);
-      updateRevealedBorders(map);
     },
-    [updateFogMask, updateNatureLayer, updateDistrictLayers, updateRevealedBorders],
+    [updateOutsideMkadMask, updateViewportLayers, updateDistrictLayers],
   );
 
   const updateSelectedLayer = useCallback((map: Map, h3Index: string | null) => {
@@ -285,23 +270,8 @@ export default function VeiloMap({
         updateHexLayers(map);
       });
 
-      const syncFog = () => map && updateFogMask(map);
-      const syncNature = () => map && updateNatureLayer(map);
-      const syncAll = () => map && updateHexLayers(map);
-
-      map.on("move", syncFog);
-      map.on("zoom", syncFog);
-      map.on("move", syncNature);
-      map.on("zoom", syncNature);
-      map.on("moveend", syncAll);
-      map.on("zoomend", syncAll);
-
-      let borderRaf = 0;
-      map.on("move", () => {
-        if (!map) return;
-        cancelAnimationFrame(borderRaf);
-        borderRaf = requestAnimationFrame(() => updateRevealedBorders(map!));
-      });
+      map.on("moveend", () => scheduleHexUpdate(map!));
+      map.on("zoomend", () => scheduleHexUpdate(map!));
 
       mapRef.current = map;
 
@@ -325,24 +295,21 @@ export default function VeiloMap({
       setMapReady(false);
       prevAmoledRef.current = null;
     };
-  }, [installMapLayers, updateHexLayers, updateFogMask, updateNatureLayer, updateDistrictLayers, updateRevealedBorders]);
+  }, [installMapLayers, updateHexLayers, scheduleHexUpdate, updateDistrictLayers]);
 
   useEffect(() => {
     ensureNatureWaterLoaded().then(() => {
       const map = mapRef.current;
-      if (map && mapReady) {
-        updateFogMask(map);
-        updateNatureLayer(map);
-      }
+      if (map && mapReady) scheduleHexUpdate(map);
     });
-  }, [mapReady, updateFogMask, updateNatureLayer]);
+  }, [mapReady, scheduleHexUpdate]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     updateDistrictLayers(map);
-    updateFogMask(map);
-  }, [districtStates, mapReady, updateDistrictLayers, updateFogMask]);
+    scheduleHexUpdate(map);
+  }, [districtStates, mapReady, updateDistrictLayers, scheduleHexUpdate]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -379,6 +346,16 @@ export default function VeiloMap({
     if (!map || !mapReady) return;
     updateRouteLayer(map, route);
   }, [route, mapReady, updateRouteLayer]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !position || hasCenteredOnUserRef.current) return;
+    if (position.accuracy >= 500) return;
+
+    const [lng, lat] = clampToMkad(position.lng, position.lat);
+    map.jumpTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), DEFAULT_ZOOM) });
+    hasCenteredOnUserRef.current = true;
+  }, [position, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -431,7 +408,7 @@ export default function VeiloMap({
 
   const handleBuildRoute = useCallback(
     async (h3Index: string) => {
-      if (!position) return;
+      if (!position || position.accuracy >= 500) return;
       setRouteLoading(true);
       const [targetLat, targetLng] = cellToLatLng(h3Index);
       const [startLng, startLat] = clampToMkad(position.lng, position.lat);
@@ -473,13 +450,23 @@ export default function VeiloMap({
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
 
       {showHeader && (
-        <div className="absolute top-3 left-4 right-16 z-10 pointer-events-none">
-          <p className="font-mono text-[10px] uppercase tracking-[0.28em]" style={{ color: "var(--ink-soft)" }}>
-            текущая зона
-          </p>
-          <h1 className="font-mono text-[17px] font-extrabold leading-tight drop-shadow-sm" style={{ color: "var(--ink)" }}>
-            {districtName}
-          </h1>
+        <div
+          className="absolute z-10 pointer-events-none"
+          style={{
+            top: "max(0.75rem, var(--safe-top))",
+            left: "var(--safe-left)",
+            right: "calc(4rem + var(--safe-right))",
+          }}
+        >
+          <div className="map-hud-chip">
+            <span className="map-hud-chip__icon" aria-hidden>
+              🧭
+            </span>
+            <div className="min-w-0">
+              <p className="map-hud-chip__label">Сейчас здесь</p>
+              <p className="map-hud-chip__title">{districtName}</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -507,6 +494,16 @@ export default function VeiloMap({
   );
 }
 
+function mapViewportBounds(map: Map): MapBounds {
+  const b = map.getBounds();
+  return {
+    west: b.getWest(),
+    south: b.getSouth(),
+    east: b.getEast(),
+    north: b.getNorth(),
+  };
+}
+
 function setSourceData(map: Map, id: string, data: GeoJSON.FeatureCollection) {
   const src = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
   if (src) src.setData(data);
@@ -516,14 +513,21 @@ function removeMapLayers(map: Map) {
   for (const id of [
     "route-line",
     "h3-selected-line",
+    "h3-selected-fill",
     DISTRICT_LABEL_LAYER,
     DISTRICT_LABEL_HIT_LAYER,
     DISTRICT_LEADER_LAYER,
     DISTRICT_BOUNDARY_UNLOCKED,
     DISTRICT_BOUNDARY_LOCKED,
+    DISTRICT_UNLOCKED_FILL,
+    DISTRICT_LOCKED_FILL,
+    MKAD_RING_LAYER,
     "h3-revealed-line",
     NATURE_LINE_LAYER,
     FOG_MASK_LAYER,
+    EXPLORED_FILL_LAYER,
+    GRID_LINE_LAYER,
+    OUTSIDE_MKAD_LAYER,
   ]) {
     if (map.getLayer(id)) map.removeLayer(id);
   }
@@ -536,6 +540,10 @@ function removeMapLayers(map: Map) {
     REVEALED_SOURCE,
     NATURE_SOURCE,
     FOG_MASK_SOURCE,
+    EXPLORED_SOURCE,
+    GRID_SOURCE,
+    OUTSIDE_MKAD_SOURCE,
+    MKAD_RING_SOURCE,
   ]) {
     if (map.getSource(id)) map.removeSource(id);
   }
@@ -544,12 +552,55 @@ function removeMapLayers(map: Map) {
 function addMapSources(map: Map) {
   const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
+  map.addSource(OUTSIDE_MKAD_SOURCE, { type: "geojson", data: empty });
+  map.addLayer({
+    id: OUTSIDE_MKAD_LAYER,
+    type: "fill",
+    source: OUTSIDE_MKAD_SOURCE,
+    paint: { "fill-color": "#2A1B45", "fill-opacity": 0.78 },
+  });
+
+  map.addSource(DISTRICT_SOURCE, { type: "geojson", data: empty });
+  map.addLayer({
+    id: DISTRICT_UNLOCKED_FILL,
+    type: "fill",
+    source: DISTRICT_SOURCE,
+    filter: ["==", ["get", "unlocked"], true],
+    paint: {
+      "fill-color": ["get", "zoneColor"],
+      "fill-opacity": ["case", ["get", "isHome"], 0.28, 0.18],
+    },
+  });
+  map.addLayer({
+    id: DISTRICT_LOCKED_FILL,
+    type: "fill",
+    source: DISTRICT_SOURCE,
+    filter: ["==", ["get", "unlocked"], false],
+    paint: { "fill-color": "#B8A8D8", "fill-opacity": 0.22 },
+  });
+
+  map.addSource(EXPLORED_SOURCE, { type: "geojson", data: empty });
+  map.addLayer({
+    id: EXPLORED_FILL_LAYER,
+    type: "fill",
+    source: EXPLORED_SOURCE,
+    paint: { "fill-color": "#FFE9B8", "fill-opacity": 0.72 },
+  });
+
   map.addSource(FOG_MASK_SOURCE, { type: "geojson", data: empty });
   map.addLayer({
     id: FOG_MASK_LAYER,
     type: "fill",
     source: FOG_MASK_SOURCE,
-    paint: { "fill-color": "#EFECE6", "fill-opacity": 0.95 },
+    paint: { "fill-color": "#C9B8E8", "fill-opacity": 0.68 },
+  });
+
+  map.addSource(GRID_SOURCE, { type: "geojson", data: empty });
+  map.addLayer({
+    id: GRID_LINE_LAYER,
+    type: "line",
+    source: GRID_SOURCE,
+    paint: { "line-color": "#C49A6C", "line-width": 1.1, "line-opacity": 0.7 },
   });
 
   map.addSource(REVEALED_SOURCE, { type: "geojson", data: empty });
@@ -557,7 +608,7 @@ function addMapSources(map: Map) {
     id: "h3-revealed-line",
     type: "line",
     source: REVEALED_SOURCE,
-    paint: { "line-color": "#D95D39", "line-width": 1.5, "line-opacity": 0.6 },
+    paint: { "line-color": "#E85A2B", "line-width": 2, "line-opacity": 0.9 },
   });
 
   map.addSource(NATURE_SOURCE, { type: "geojson", data: empty });
@@ -566,20 +617,19 @@ function addMapSources(map: Map) {
     type: "line",
     source: NATURE_SOURCE,
     paint: {
-      "line-color": "#5B9BD5",
-      "line-width": 1.5,
-      "line-opacity": 0.55,
-      "line-dasharray": [2, 3],
+      "line-color": "#2E9FD6",
+      "line-width": 2,
+      "line-opacity": 0.75,
+      "line-dasharray": [3, 2],
     },
   });
 
-  map.addSource(DISTRICT_SOURCE, { type: "geojson", data: empty });
   map.addLayer({
     id: DISTRICT_BOUNDARY_UNLOCKED,
     type: "line",
     source: DISTRICT_SOURCE,
     filter: ["==", ["get", "unlocked"], true],
-    paint: { "line-color": "#D95D39", "line-width": 2, "line-opacity": 0.85 },
+    paint: { "line-color": "#D95D39", "line-width": 3, "line-opacity": 0.9 },
   });
   map.addLayer({
     id: DISTRICT_BOUNDARY_LOCKED,
@@ -587,10 +637,35 @@ function addMapSources(map: Map) {
     source: DISTRICT_SOURCE,
     filter: ["==", ["get", "unlocked"], false],
     paint: {
-      "line-color": "#9CA3AF",
-      "line-width": 2,
-      "line-opacity": 0.7,
-      "line-dasharray": [5, 4],
+      "line-color": "#9B8AB8",
+      "line-width": 2.5,
+      "line-opacity": 0.85,
+      "line-dasharray": [6, 4],
+    },
+  });
+
+  map.addSource(MKAD_RING_SOURCE, {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "LineString", coordinates: MKAD_RING },
+        },
+      ],
+    },
+  });
+  map.addLayer({
+    id: MKAD_RING_LAYER,
+    type: "line",
+    source: MKAD_RING_SOURCE,
+    paint: {
+      "line-color": "#FFB84D",
+      "line-width": 3,
+      "line-opacity": 0.95,
+      "line-dasharray": [5, 3],
     },
   });
 
@@ -620,7 +695,7 @@ function addMapSources(map: Map) {
     source: DISTRICT_LABELS_SOURCE,
     layout: {
       "text-field": ["concat", ["get", "name"], "\n", ["get", "statusLine"]],
-      "text-size": 10,
+      "text-size": 11,
       "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
       "text-anchor": ["get", "textAnchor"],
       "text-justify": ["get", "textJustify"],
@@ -637,21 +712,29 @@ function addMapSources(map: Map) {
     paint: {
       "text-color": [
         "case",
+        ["get", "isHome"],
+        "#D95D39",
         ["get", "unlocked"],
         "#3D3830",
-        "#6B7280",
+        "#7A6B8F",
       ],
-      "text-halo-color": "#EFECE6",
-      "text-halo-width": 1.8,
+      "text-halo-color": "#FFF8EE",
+      "text-halo-width": 2.4,
     },
   });
 
   map.addSource(SELECTED_SOURCE, { type: "geojson", data: empty });
   map.addLayer({
+    id: "h3-selected-fill",
+    type: "fill",
+    source: SELECTED_SOURCE,
+    paint: { "fill-color": "#FFBE0B", "fill-opacity": 0.35 },
+  });
+  map.addLayer({
     id: "h3-selected-line",
     type: "line",
     source: SELECTED_SOURCE,
-    paint: { "line-color": "#D95D39", "line-width": 3, "line-opacity": 1 },
+    paint: { "line-color": "#FFBE0B", "line-width": 3.5, "line-opacity": 1 },
   });
 
   map.addSource(ROUTE_SOURCE, { type: "geojson", data: empty });
@@ -659,21 +742,58 @@ function addMapSources(map: Map) {
     id: "route-line",
     type: "line",
     source: ROUTE_SOURCE,
+    layout: { "line-cap": "round", "line-join": "round" },
     paint: {
       "line-color": "#D95D39",
-      "line-width": 4,
-      "line-opacity": 0.9,
-      "line-dasharray": [2, 2],
+      "line-width": 5,
+      "line-opacity": 0.95,
     },
   });
 }
 
 function applyLayerPaint(map: Map, isAmoled: boolean) {
   const paint = getHexLayerPaint(isAmoled);
+  if (map.getLayer(OUTSIDE_MKAD_LAYER)) {
+    map.setPaintProperty(OUTSIDE_MKAD_LAYER, "fill-color", paint.outside.fill);
+    map.setPaintProperty(OUTSIDE_MKAD_LAYER, "fill-opacity", paint.outside.fillOpacity);
+  }
+  if (map.getLayer(MKAD_RING_LAYER)) {
+    map.setPaintProperty(MKAD_RING_LAYER, "line-color", paint.mkad.line);
+    map.setPaintProperty(MKAD_RING_LAYER, "line-width", paint.mkad.lineWidth);
+  }
+  if (map.getLayer(EXPLORED_FILL_LAYER)) {
+    map.setPaintProperty(EXPLORED_FILL_LAYER, "fill-color", paint.explored.fill);
+    map.setPaintProperty(EXPLORED_FILL_LAYER, "fill-opacity", paint.explored.fillOpacity);
+  }
+  if (map.getLayer(FOG_MASK_LAYER)) {
+    map.setPaintProperty(FOG_MASK_LAYER, "fill-color", paint.fog.fill);
+    map.setPaintProperty(FOG_MASK_LAYER, "fill-opacity", paint.fog.fillOpacity);
+  }
+  if (map.getLayer(GRID_LINE_LAYER)) {
+    map.setPaintProperty(GRID_LINE_LAYER, "line-color", paint.grid.line);
+    map.setPaintProperty(GRID_LINE_LAYER, "line-opacity", paint.grid.lineOpacity);
+    map.setPaintProperty(GRID_LINE_LAYER, "line-width", paint.grid.lineWidth);
+  }
+  if (map.getLayer("h3-revealed-line")) {
+    map.setPaintProperty("h3-revealed-line", "line-color", paint.revealed.line);
+    map.setPaintProperty("h3-revealed-line", "line-opacity", paint.revealed.lineOpacity);
+    map.setPaintProperty("h3-revealed-line", "line-width", paint.revealed.lineWidth);
+  }
   if (map.getLayer(NATURE_LINE_LAYER)) {
     map.setPaintProperty(NATURE_LINE_LAYER, "line-color", paint.nature.line);
     map.setPaintProperty(NATURE_LINE_LAYER, "line-opacity", paint.nature.lineOpacity);
     map.setPaintProperty(NATURE_LINE_LAYER, "line-width", paint.nature.lineWidth);
+  }
+  if (map.getLayer(DISTRICT_LOCKED_FILL)) {
+    map.setPaintProperty(DISTRICT_LOCKED_FILL, "fill-color", paint.district.lockedFill);
+    map.setPaintProperty(DISTRICT_LOCKED_FILL, "fill-opacity", paint.district.lockedFillOpacity);
+  }
+  if (map.getLayer(DISTRICT_UNLOCKED_FILL)) {
+    map.setPaintProperty(
+      DISTRICT_UNLOCKED_FILL,
+      "fill-opacity",
+      ["case", ["get", "isHome"], paint.district.unlockedFillOpacity + 0.08, paint.district.unlockedFillOpacity],
+    );
   }
   if (map.getLayer(DISTRICT_BOUNDARY_UNLOCKED)) {
     map.setPaintProperty(DISTRICT_BOUNDARY_UNLOCKED, "line-color", paint.district.unlockedLine);
@@ -684,37 +804,31 @@ function applyLayerPaint(map: Map, isAmoled: boolean) {
     map.setPaintProperty(DISTRICT_BOUNDARY_LOCKED, "line-width", paint.district.lineWidth);
   }
   if (map.getLayer(DISTRICT_LEADER_LAYER)) {
-    map.setPaintProperty(DISTRICT_LEADER_LAYER, "line-color", isAmoled ? "#6B7280" : "#9CA3AF");
+    map.setPaintProperty(DISTRICT_LEADER_LAYER, "line-color", isAmoled ? "#7A6B9A" : "#C4B5D8");
   }
   if (map.getLayer(DISTRICT_LABEL_LAYER)) {
-    map.setPaintProperty(
-      DISTRICT_LABEL_LAYER,
-      "text-color",
-      [
-        "case",
-        ["get", "unlocked"],
-        isAmoled ? "#E8E4DC" : "#3D3830",
-        isAmoled ? "#9CA3AF" : "#6B7280",
-      ],
-    );
-    map.setPaintProperty(
-      DISTRICT_LABEL_LAYER,
-      "text-halo-color",
-      isAmoled ? "#000000" : "#EFECE6",
-    );
+    map.setPaintProperty(DISTRICT_LABEL_LAYER, "text-color", [
+      "case",
+      ["get", "isHome"],
+      paint.accent,
+      ["get", "unlocked"],
+      isAmoled ? "#F5E6D3" : "#3D3830",
+      isAmoled ? "#9B8AB8" : "#7A6B8F",
+    ]);
+    map.setPaintProperty(DISTRICT_LABEL_LAYER, "text-halo-color", isAmoled ? "#120a20" : "#FFF8EE");
+    map.setPaintProperty(DISTRICT_LABEL_LAYER, "text-halo-width", 2.4);
   }
-  if (map.getLayer(FOG_MASK_LAYER)) {
-    map.setPaintProperty(FOG_MASK_LAYER, "fill-color", paint.fog.fill);
-    map.setPaintProperty(FOG_MASK_LAYER, "fill-opacity", paint.fog.fillOpacity);
-  }
-  if (map.getLayer("h3-revealed-line")) {
-    map.setPaintProperty("h3-revealed-line", "line-color", paint.revealed.line);
-    map.setPaintProperty("h3-revealed-line", "line-opacity", paint.revealed.lineOpacity);
-    map.setPaintProperty("h3-revealed-line", "line-width", paint.revealed.lineWidth);
+  if (map.getLayer("h3-selected-fill")) {
+    map.setPaintProperty("h3-selected-fill", "fill-color", paint.selected.line);
+    map.setPaintProperty("h3-selected-fill", "fill-opacity", isAmoled ? 0.22 : 0.35);
   }
   if (map.getLayer("h3-selected-line")) {
     map.setPaintProperty("h3-selected-line", "line-color", paint.selected.line);
     map.setPaintProperty("h3-selected-line", "line-width", paint.selected.lineWidth);
+  }
+  if (map.getLayer("route-line")) {
+    map.setPaintProperty("route-line", "line-color", paint.route.line);
+    map.setPaintProperty("route-line", "line-width", paint.route.lineWidth);
   }
 }
 
@@ -749,6 +863,7 @@ function bindHexInteractions(
       h3Index,
       visited,
       accessible: isCellInteractive(h3Index, districtStatesRef.current),
+      routable: isCellRoutable(h3Index),
       isNature: access.status === "nature",
       statusLabel:
         access.status === "nature"

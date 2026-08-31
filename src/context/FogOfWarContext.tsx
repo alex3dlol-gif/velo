@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { useFogOfWar } from "../hooks/useFogOfWar";
+import { useGeolocation } from "../hooks/useGeolocation";
 import { useApp } from "./AppContext";
 import { installOfflineSyncListener } from "../features/tracking/offlineHexQueue";
 
@@ -8,7 +9,8 @@ type FogOfWarContextValue = ReturnType<typeof useFogOfWar>;
 const FogOfWarContext = createContext<FogOfWarContextValue | null>(null);
 
 export function FogOfWarProvider({ children }: { children: ReactNode }) {
-  const fog = useFogOfWar();
+  const { position } = useGeolocation(true);
+  const fog = useFogOfWar(position);
   const { isExploring } = useApp();
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,25 +31,6 @@ function toHex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function validateInitData(initData: string, botToken: string): Promise<boolean> {
-  const params = new URLSearchParams(initData);
-  const hash = params.get("hash");
-  if (!hash) return false;
-
-  const authDate = Number(params.get("auth_date") ?? "0");
-  if (!authDate || Date.now() / 1000 - authDate > 86_400) return false;
-
-  params.delete("hash");
-  const dataCheckString = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
-
-  const secretKey = await hmacSha256(new TextEncoder().encode(botToken), "WebAppData");
-  const signature = await hmacSha256(secretKey, dataCheckString);
-  return toHex(signature) === hash;
-}
-
 async function validateWidgetAuth(user: TelegramWidgetUser, botToken: string): Promise<boolean> {
   const { hash } = user;
   const fields: Record<string, string> = {
@@ -71,20 +52,56 @@ async function validateWidgetAuth(user: TelegramWidgetUser, botToken: string): P
   return toHex(signature) === hash;
 }
 
-function parseTelegramUser(initData: string): TelegramWidgetUser | null {
-  const params = new URLSearchParams(initData);
-  const raw = params.get("user");
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as TelegramWidgetUser;
-    return parsed?.id ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function syntheticEmail(telegramId: number): string {
   return `tg_${telegramId}@telegram.veilo.app`;
+}
+
+async function findUserIdByTelegramId(
+  admin: SupabaseClient,
+  telegramId: number,
+  email: string,
+): Promise<string | undefined> {
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("telegram_id", telegramId)
+    .maybeSingle();
+
+  if (profile?.id) return profile.id as string;
+
+  for (let page = 1; page <= 5; page++) {
+    const { data: listed, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+    const match = listed.users.find(
+      (u) => u.email === email || u.user_metadata?.telegram_id === telegramId,
+    );
+    if (match) return match.id;
+    if (listed.users.length < 200) break;
+  }
+
+  return undefined;
+}
+
+async function issueSession(admin: SupabaseClient, email: string) {
+  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+  });
+
+  if (linkError) throw linkError;
+
+  const tokenHash = linkData?.properties?.hashed_token;
+  if (!tokenHash) throw new Error("Failed to generate auth token");
+
+  const { data: verified, error: verifyError } = await admin.auth.verifyOtp({
+    type: "magiclink",
+    token_hash: tokenHash,
+  });
+
+  if (verifyError) throw verifyError;
+  if (!verified.session) throw new Error("Session was not created");
+
+  return verified.session;
 }
 
 Deno.serve(async (req) => {
@@ -104,41 +121,36 @@ Deno.serve(async (req) => {
       });
     }
 
-    const body = await req.json() as { initData?: string; widgetUser?: TelegramWidgetUser };
-    let tgUser: TelegramWidgetUser | null = null;
-
-    if (body.initData) {
-      const valid = await validateInitData(body.initData, botToken);
-      if (!valid) {
-        return new Response(JSON.stringify({ error: "Invalid Telegram initData" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      tgUser = parseTelegramUser(body.initData);
-    } else if (body.widgetUser) {
-      const raw = body.widgetUser as Record<string, unknown>;
-      tgUser = {
-        id: Number(raw.id),
-        first_name: String(raw.first_name ?? ""),
-        auth_date: Number(raw.auth_date),
-        hash: String(raw.hash ?? ""),
-        last_name: raw.last_name ? String(raw.last_name) : undefined,
-        username: raw.username ? String(raw.username) : undefined,
-        photo_url: raw.photo_url ? String(raw.photo_url) : undefined,
-      };
-      const valid = await validateWidgetAuth(tgUser, botToken);
-      if (!valid) {
-        return new Response(JSON.stringify({ error: "Invalid Telegram widget auth" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+    const body = await req.json() as { widgetUser?: Record<string, unknown> };
+    if (!body.widgetUser) {
+      return new Response(JSON.stringify({ error: "widgetUser is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    if (!tgUser?.id) {
-      return new Response(JSON.stringify({ error: "Telegram user not found" }), {
+    const raw = body.widgetUser;
+    const tgUser: TelegramWidgetUser = {
+      id: Number(raw.id),
+      first_name: String(raw.first_name ?? ""),
+      auth_date: Number(raw.auth_date),
+      hash: String(raw.hash ?? ""),
+      last_name: raw.last_name ? String(raw.last_name) : undefined,
+      username: raw.username ? String(raw.username) : undefined,
+      photo_url: raw.photo_url ? String(raw.photo_url) : undefined,
+    };
+
+    if (!tgUser.id || !tgUser.hash || !tgUser.first_name) {
+      return new Response(JSON.stringify({ error: "Invalid Telegram user payload" }), {
         status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const valid = await validateWidgetAuth(tgUser, botToken);
+    if (!valid) {
+      return new Response(JSON.stringify({ error: "Invalid Telegram widget auth" }), {
+        status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -158,13 +170,7 @@ Deno.serve(async (req) => {
       photo_url: tgUser.photo_url,
     };
 
-    const { data: existingProfile } = await admin
-      .from("profiles")
-      .select("id")
-      .eq("telegram_id", tgUser.id)
-      .maybeSingle();
-
-    let userId = existingProfile?.id as string | undefined;
+    let userId = await findUserIdByTelegramId(admin, tgUser.id, email);
 
     if (!userId) {
       const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -174,35 +180,37 @@ Deno.serve(async (req) => {
       });
 
       if (createError) {
-        const { data: listed } = await admin.auth.admin.listUsers();
-        const match = listed.users.find(
-          (u) =>
-            u.email === email ||
-            u.user_metadata?.telegram_id === tgUser.id,
-        );
-        userId = match?.id;
+        userId = await findUserIdByTelegramId(admin, tgUser.id, email);
         if (!userId) throw createError;
       } else {
         userId = created.user.id;
       }
+    } else {
+      await admin.auth.admin.updateUserById(userId, { user_metadata: metadata });
+      await admin
+        .from("profiles")
+        .update({
+          username: metadata.username,
+          photo_url: metadata.photo_url,
+          telegram_id: tgUser.id,
+        })
+        .eq("id", userId);
     }
 
-    const { data: sessionData, error: sessionError } = await admin.auth.admin.createSession({
-      user_id: userId,
-    });
-    if (sessionError || !sessionData.session) throw sessionError ?? new Error("Session creation failed");
+    const session = await issueSession(admin, email);
 
     return new Response(
       JSON.stringify({
-        access_token: sessionData.session.access_token,
-        refresh_token: sessionData.session.refresh_token,
-        expires_in: sessionData.session.expires_in,
-        user: sessionData.session.user,
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_in: session.expires_in,
+        user: session.user,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[telegram-auth]", message, error);
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

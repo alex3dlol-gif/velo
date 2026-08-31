@@ -7,23 +7,28 @@ maplibregl.setWorkerUrl(workerUrl);
 export { maplibregl };
 export type { Map, MapLayerMouseEvent, GeoJSONSource } from "maplibre-gl";
 
-/** OpenStreetMap raster — no API key required. */
-export const MAP_STYLE_LIGHT: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors",
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: "osm-tiles", type: "raster", source: "osm" }],
+const MAP_GLYPHS = "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf";
+
+/** Мягкая «игровая» подложка — не сухой OSM. */
+const GAME_TILE_PAINT_LIGHT = {
+  "raster-saturation": -0.45,
+  "raster-brightness-min": 0.22,
+  "raster-brightness-max": 0.92,
+  "raster-contrast": -0.08,
+  "raster-hue-rotate": 18,
 };
 
-export const MAP_STYLE_DARK: StyleSpecification = {
+const GAME_TILE_PAINT_DARK = {
+  "raster-saturation": -0.55,
+  "raster-brightness-min": 0.08,
+  "raster-brightness-max": 0.55,
+  "raster-contrast": 0.05,
+  "raster-hue-rotate": 25,
+};
+
+export const MAP_STYLE_LIGHT: StyleSpecification = {
   version: 8,
+  glyphs: MAP_GLYPHS,
   sources: {
     osm: {
       type: "raster",
@@ -34,7 +39,34 @@ export const MAP_STYLE_DARK: StyleSpecification = {
     },
   },
   layers: [
-    { id: "osm-tiles", type: "raster", source: "osm", paint: { "raster-brightness-min": 0.05, "raster-saturation": -0.6 } },
+    {
+      id: "osm-tiles",
+      type: "raster",
+      source: "osm",
+      paint: GAME_TILE_PAINT_LIGHT,
+    },
+  ],
+};
+
+export const MAP_STYLE_DARK: StyleSpecification = {
+  version: 8,
+  glyphs: MAP_GLYPHS,
+  sources: {
+    osm: {
+      type: "raster",
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
+      maxzoom: 19,
+    },
+  },
+  layers: [
+    {
+      id: "osm-tiles",
+      type: "raster",
+      source: "osm",
+      paint: GAME_TILE_PAINT_DARK,
+    },
   ],
 };
 
