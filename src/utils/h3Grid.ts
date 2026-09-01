@@ -18,14 +18,14 @@ const TERRACOTTA = "#D95D39";
 const BOUNDARY_CACHE = new Map<string, [number, number][]>();
 const VIEWPORT_CELL_CACHE = new Map<string, string[]>();
 
-const VIEWPORT_CELL_HARD_CAP = 520;
+const VIEWPORT_CELL_HARD_CAP = 650;
 
 function maxCellsForZoom(zoom: number): number {
-  if (zoom >= 16) return 480;
-  if (zoom >= 14) return 400;
-  if (zoom >= 12) return 300;
-  if (zoom >= 11) return 220;
-  return 180;
+  if (zoom >= 16) return 520;
+  if (zoom >= 14) return 450;
+  if (zoom >= 12) return 360;
+  if (zoom >= 11) return 300;
+  return 240;
 }
 
 /** Всегда res 9 — иначе сетка и visited-гексы не совпадают. */
@@ -167,19 +167,14 @@ function isInsideBounds(lat: number, lng: number, bounds: MapBounds): boolean {
   return lng >= bounds.west && lng <= bounds.east && lat >= bounds.south && lat <= bounds.north;
 }
 
-function prioritizeCells(cells: string[], bounds: MapBounds, limit: number): string[] {
+function subsampleCells(cells: string[], limit: number): string[] {
   if (cells.length <= limit) return cells;
-  const centerLat = (bounds.north + bounds.south) / 2;
-  const centerLng = (bounds.east + bounds.west) / 2;
-  return [...cells]
-    .sort((a, b) => {
-      const [latA, lngA] = cellToLatLng(a);
-      const [latB, lngB] = cellToLatLng(b);
-      const dA = (latA - centerLat) ** 2 + (lngA - centerLng) ** 2;
-      const dB = (latB - centerLat) ** 2 + (lngB - centerLng) ** 2;
-      return dA - dB;
-    })
-    .slice(0, limit);
+  const out: string[] = [];
+  const stride = cells.length / limit;
+  for (let i = 0; i < limit; i++) {
+    out.push(cells[Math.min(cells.length - 1, Math.floor(i * stride))]!);
+  }
+  return out;
 }
 
 /** Все H3-ячейки, пересекающие bounds — сплошная сотка без дыр. */
@@ -190,7 +185,7 @@ export function getCellsInBounds(bounds: MapBounds, resolution = H3_RESOLUTION, 
     cells = cells.filter((idx) => cellIntersectsBounds(idx, bounds));
     if (cells.length > 0) {
       const cap = Math.min(VIEWPORT_CELL_HARD_CAP, Math.max(maxCells * 3, 400));
-      return cells.length <= cap ? cells : prioritizeCells(cells, bounds, cap);
+      return cells.length <= cap ? cells : subsampleCells(cells, cap);
     }
   } catch {
     /* dense fallback below */
@@ -213,7 +208,7 @@ export function getCellsInBounds(bounds: MapBounds, resolution = H3_RESOLUTION, 
 
   const result = filterMkadCells([...cells]);
   const cap = Math.min(VIEWPORT_CELL_HARD_CAP, Math.max(maxCells * 3, 400));
-  return result.length <= cap ? result : prioritizeCells(result, bounds, cap);
+  return result.length <= cap ? result : subsampleCells(result, cap);
 }
 
 /**

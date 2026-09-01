@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { GeoPosition } from "./useGeolocation";
+import type { GeoPosition } from "../context/GeolocationContext";
 import {
   fallbackHomeDistrictId,
   loadStoredHomeDistrictId,

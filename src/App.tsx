@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AppProvider, useApp } from "./context/AppContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { FogOfWarProvider } from "./context/FogOfWarContext";
+import { GeolocationProvider } from "./context/GeolocationContext";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import BottomNavigationBar from "./components/BottomNavigationBar";
 import ExploreMode from "./components/ExploreMode";
@@ -21,12 +22,21 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <AppProvider>
-          <FogOfWarProvider>
-            <VeiloShell />
-          </FogOfWarProvider>
+          <VeiloApp />
         </AppProvider>
       </AuthProvider>
     </ThemeProvider>
+  );
+}
+
+function VeiloApp() {
+  const { session } = useAuth();
+  return (
+    <FogOfWarProvider>
+      <GeolocationProvider enabled={Boolean(session)}>
+        <VeiloShell />
+      </GeolocationProvider>
+    </FogOfWarProvider>
   );
 }
 

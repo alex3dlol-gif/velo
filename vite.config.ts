@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
+      target: ['es2020', 'safari14'],
     },
     plugins: [
       react(),

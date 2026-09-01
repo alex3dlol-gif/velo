@@ -20,13 +20,21 @@ export type GameDistrict = {
   unlockAfter: { districtId: string; thresholdPct: number } | null;
 };
 
-const LNG_SPLITS = splitLine(MKAD_BOUNDS.west, MKAD_BOUNDS.east, 4);
-const LAT_SPLITS = splitLine(MKAD_BOUNDS.south, MKAD_BOUNDS.north, 3);
-
-function splitLine(min: number, max: number, parts: number): number[] {
-  const step = (max - min) / parts;
-  return Array.from({ length: parts + 1 }, (_, i) => min + step * i);
-}
+/** Реальные центры районов [lng, lat] — ближайший район по координатам. */
+const DISTRICT_CENTERS: Record<string, [number, number]> = {
+  ramenki: [37.498, 55.705],
+  ochakovo: [37.47, 55.682],
+  chertanovo: [37.603, 55.628],
+  marino: [37.745, 55.65],
+  fili: [37.472, 55.752],
+  hamovniki: [37.568, 55.727],
+  zamoskvorechye: [37.632, 55.736],
+  tagansky: [37.655, 55.74],
+  sokol: [37.515, 55.805],
+  tverskoy: [37.61, 55.765],
+  sokolniki: [37.68, 55.792],
+  izmailovo: [37.78, 55.79],
+};
 
 type GridCell = {
   id: string;
@@ -73,12 +81,36 @@ const UNLOCK_ORDER = [
   "izmailovo",
 ] as const;
 
+function getGridIndices(lng: number, lat: number): { col: number; row: number } | null {
+  const LNG_SPLITS = splitLine(MKAD_BOUNDS.west, MKAD_BOUNDS.east, 4);
+  const LAT_SPLITS = splitLine(MKAD_BOUNDS.south, MKAD_BOUNDS.north, 3);
+  const col = LNG_SPLITS.findIndex(
+    (west, i) =>
+      lng >= west &&
+      (i === LNG_SPLITS.length - 2 ? lng <= LNG_SPLITS[i + 1]! : lng < LNG_SPLITS[i + 1]!),
+  );
+  const row = LAT_SPLITS.findIndex(
+    (south, i) =>
+      lat >= south &&
+      (i === LAT_SPLITS.length - 2 ? lat <= LAT_SPLITS[i + 1]! : lat < LAT_SPLITS[i + 1]!),
+  );
+  if (col < 0 || row < 0 || row >= GRID.length || col >= GRID[row]!.length) return null;
+  return { col, row };
+}
+
+function splitLine(min: number, max: number, parts: number): number[] {
+  const step = (max - min) / parts;
+  return Array.from({ length: parts + 1 }, (_, i) => min + step * i);
+}
+
 function boundsFromGrid(col: number, row: number): MapBounds {
+  const LNG_SPLITS = splitLine(MKAD_BOUNDS.west, MKAD_BOUNDS.east, 4);
+  const LAT_SPLITS = splitLine(MKAD_BOUNDS.south, MKAD_BOUNDS.north, 3);
   return {
-    west: LNG_SPLITS[col],
-    south: LAT_SPLITS[row],
-    east: LNG_SPLITS[col + 1],
-    north: LAT_SPLITS[row + 1],
+    west: LNG_SPLITS[col]!,
+    south: LAT_SPLITS[row]!,
+    east: LNG_SPLITS[col + 1]!,
+    north: LAT_SPLITS[row + 1]!,
   };
 }
 
@@ -119,7 +151,7 @@ function buildDistricts(): GameDistrict[] {
     for (let col = 0; col < GRID[row].length; col++) {
       const cell = GRID[row][col];
       const bounds = boundsFromGrid(col, row);
-      const center: [number, number] = [
+      const center: [number, number] = DISTRICT_CENTERS[cell.id] ?? [
         (bounds.west + bounds.east) / 2,
         (bounds.south + bounds.north) / 2,
       ];
@@ -159,25 +191,19 @@ export function getDistrictById(id: string): GameDistrict | undefined {
   return GAME_DISTRICTS.find((d) => d.id === id);
 }
 
-function getGridIndices(lng: number, lat: number): { col: number; row: number } | null {
-  const col = LNG_SPLITS.findIndex(
-    (west, i) =>
-      lng >= west &&
-      (i === LNG_SPLITS.length - 2 ? lng <= LNG_SPLITS[i + 1]! : lng < LNG_SPLITS[i + 1]!),
-  );
-  const row = LAT_SPLITS.findIndex(
-    (south, i) =>
-      lat >= south &&
-      (i === LAT_SPLITS.length - 2 ? lat <= LAT_SPLITS[i + 1]! : lat < LAT_SPLITS[i + 1]!),
-  );
-  if (col < 0 || row < 0 || row >= GRID.length || col >= GRID[row]!.length) return null;
-  return { col, row };
-}
-
 export function getDistrictIdForCoords(lng: number, lat: number): string | null {
-  const idx = getGridIndices(lng, lat);
-  if (!idx) return null;
-  return GRID[idx.row]![idx.col]!.id;
+  if (!isInsideMkadRing(lat, lng)) return null;
+  let bestId: string | null = null;
+  let bestDist = Infinity;
+  for (const district of GAME_DISTRICTS) {
+    const [dlng, dlat] = district.center;
+    const dist = (lng - dlng) ** 2 + (lat - dlat) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestId = district.id;
+    }
+  }
+  return bestId;
 }
 
 export function getDistrictByGrid(col: number, row: number): GameDistrict | undefined {

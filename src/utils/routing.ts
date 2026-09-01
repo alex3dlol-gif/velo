@@ -1,9 +1,8 @@
 import type { Travel } from "../context/AppContext";
 import type { RouteGeoJSON } from "../types/sector";
 
-const OSRM_BASE = import.meta.env.DEV
-  ? "/api/osrm/route/v1"
-  : "/api/osrm/route/v1";
+const OSRM_ROUTE_BASE = "/api/osrm/route/v1";
+const OSRM_NEAREST_BASE = "/api/osrm/nearest/v1";
 
 type OsrmResponse = {
   code: string;
@@ -26,7 +25,7 @@ async function snapToRoad(
   lat: number,
   profile: string,
 ): Promise<{ lng: number; lat: number }> {
-  const url = `${OSRM_BASE}/nearest/v1/${profile}/${lng},${lat}?number=1`;
+  const url = `${OSRM_NEAREST_BASE}/${profile}/${lng},${lat}?number=1`;
   try {
     const res = await fetch(url);
     if (!res.ok) return { lng, lat };
@@ -47,7 +46,7 @@ async function requestRoute(
   profile: string,
 ): Promise<OsrmResponse | null> {
   const coords = `${startLng},${startLat};${endLng},${endLat}`;
-  const url = `${OSRM_BASE}/${profile}/${coords}?overview=full&geometries=geojson&steps=false`;
+  const url = `${OSRM_ROUTE_BASE}/${profile}/${coords}?overview=full&geometries=geojson&steps=false`;
 
   try {
     const res = await fetch(url);

@@ -5,7 +5,7 @@ import {
   useState,
   type MutableRefObject,
 } from "react";
-import { cellToLatLng } from "h3-js";
+import { cellToLatLng, gridDisk } from "h3-js";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { maplibregl, getMapStyle, type Map } from "../../lib/maplibre";
 import { useTheme } from "../../context/ThemeContext";
@@ -39,6 +39,8 @@ import SectorCard from "./SectorCard";
 import DistrictCard from "./DistrictCard";
 import MapFab from "./MapFab";
 import HexCanvasOverlay from "./HexCanvasOverlay";
+import RouteCanvasOverlay from "./RouteCanvasOverlay";
+import MapMotionHud from "./MapMotionHud";
 
 const FOG_MASK_LAYER = "h3-fog-mask";
 const FOG_MASK_SOURCE = "h3-fog-mask";
@@ -90,7 +92,7 @@ export default function VeiloMap({
   const districtCardRef = useRef<(id: string | null) => void>(() => {});
 
   const { isAmoled } = useTheme();
-  const { travel, isExploring, isPaused } = useApp();
+  const { travel, isExploring, isPaused, isNavigating, activeRoute, setActiveRoute, speedBlocked } = useApp();
   const { visited, revealHex, sessionRevealed, districtStates } = useFogOfWarContext();
   const { position } = useGeolocation(true);
 
@@ -99,7 +101,6 @@ export default function VeiloMap({
   const [showGrid, setShowGrid] = useState(true);
   const [sectorCard, setSectorCard] = useState<SectorCardData | null>(null);
   const [selectedHex, setSelectedHex] = useState<string | null>(null);
-  const [route, setRoute] = useState<RouteGeoJSON | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [districtCardId, setDistrictCardId] = useState<string | null>(null);
@@ -334,7 +335,7 @@ export default function VeiloMap({
     prevAmoledRef.current = isAmoled;
     if (isFirstRun) return;
 
-    const savedRoute = route;
+    const savedRoute = activeRoute;
     map.setStyle(getMapStyle(isAmoled));
     map.once("style.load", () => {
       applyMkadRestrictions(map);
@@ -343,7 +344,7 @@ export default function VeiloMap({
       setMapInstance(map);
       map.resize();
     });
-  }, [isAmoled, mapReady, installMapLayers, route, updateRouteLayer]);
+  }, [isAmoled, mapReady, installMapLayers, activeRoute, updateRouteLayer]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -362,8 +363,8 @@ export default function VeiloMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    updateRouteLayer(map, route);
-  }, [route, mapReady, updateRouteLayer]);
+    updateRouteLayer(map, activeRoute);
+  }, [activeRoute, mapReady, updateRouteLayer]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -401,17 +402,28 @@ export default function VeiloMap({
 
     if (autoFollow && isExploring && !isPaused) {
       const [lng, lat] = clampToMkad(position.lng, position.lat);
-      map.easeTo({ center: [lng, lat], duration: 800 });
+      const bearing = isNavigating && position.heading != null ? position.heading : map.getBearing();
+      map.easeTo({
+        center: [lng, lat],
+        bearing,
+        zoom: Math.max(map.getZoom(), isNavigating ? 16 : 15),
+        duration: 800,
+      });
     }
-  }, [position, mapReady, autoFollow, isExploring, isPaused]);
+  }, [position, mapReady, autoFollow, isExploring, isPaused, isNavigating]);
 
   useEffect(() => {
-    if (!position || !isExploring || isPaused) return;
+    if (!position || !isExploring || isPaused || speedBlocked) return;
     const cell = coordsToCell(position.lat, position.lng);
-    if (cell === lastCellRef.current) return;
-    lastCellRef.current = cell;
-    revealHex(cell);
-  }, [position, isExploring, isPaused, revealHex]);
+    const captureRadius = travel === "bike" ? 1 : 0;
+    const targets = new Set([cell, ...gridDisk(cell, captureRadius)]);
+    let revealed = false;
+    for (const idx of targets) {
+      if (revealHex(idx)) revealed = true;
+    }
+    if (revealed) lastCellRef.current = cell;
+    else if (!lastCellRef.current) lastCellRef.current = cell;
+  }, [position, isExploring, isPaused, speedBlocked, travel, revealHex]);
 
   useEffect(() => {
     onSessionHex?.(sessionRevealed);
@@ -432,7 +444,7 @@ export default function VeiloMap({
         setRouteError("Ожидание GPS — подождите несколько секунд");
         return;
       }
-      if (position.accuracy >= 2000) {
+      if (position.accuracy > 2500) {
         setRouteError("Слабый сигнал GPS — выйдите на открытое место");
         return;
       }
@@ -449,7 +461,7 @@ export default function VeiloMap({
         return;
       }
 
-      setRoute(result.route);
+      setActiveRoute(result.route, h3Index);
 
       const map = mapRef.current;
       if (!map) return;
@@ -463,13 +475,13 @@ export default function VeiloMap({
         { padding: 48, duration: 900 },
       );
     },
-    [position, travel],
+    [position, travel, setActiveRoute],
   );
 
   const clearRoute = useCallback(() => {
-    setRoute(null);
+    setActiveRoute(null);
     setRouteError(null);
-  }, []);
+  }, [setActiveRoute]);
 
   const closeSectorCard = useCallback(() => {
     setSectorCard(null);
@@ -483,6 +495,11 @@ export default function VeiloMap({
     <div className={`relative h-full w-full min-h-[120px] ${className}`}>
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
       {mapInstance && <HexCanvasOverlay map={mapInstance} visited={visited} showGrid={showGrid} />}
+      {mapInstance && <RouteCanvasOverlay map={mapInstance} route={activeRoute} />}
+
+      {(isExploring || showHeader) && (
+        <MapMotionHud position={position} speedBlocked={speedBlocked} navigating={isNavigating} />
+      )}
 
       {showHeader && (
         <div
@@ -507,7 +524,7 @@ export default function VeiloMap({
 
       <MapFab showGrid={showGrid} onToggleGrid={() => setShowGrid((v) => !v)} onLocate={flyToUser} />
 
-      {route && (
+      {activeRoute && !isExploring && (
         <button
           onClick={clearRoute}
           className="absolute left-4 bottom-4 z-20 font-mono text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded-xl"

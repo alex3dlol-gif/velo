@@ -5,7 +5,7 @@ import { recordSectorVisit } from "../utils/sectorStats";
 import { getDistrictById } from "../constants/districts";
 import { vibrateNewHex } from "../utils/haptics";
 import { queueHexReveal } from "../features/tracking/offlineHexQueue";
-import type { GeoPosition } from "./useGeolocation";
+import type { GeoPosition } from "../context/GeolocationContext";
 import { useHomeDistrictId } from "./useHomeDistrictId";
 
 const STORAGE_KEY = "veilo-visited-hexes";
