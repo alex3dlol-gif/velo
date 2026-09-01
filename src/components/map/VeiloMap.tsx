@@ -41,7 +41,6 @@ import DistrictCard from "./DistrictCard";
 import MapFab from "./MapFab";
 import HexCanvasOverlay from "./HexCanvasOverlay";
 import RouteCanvasOverlay from "./RouteCanvasOverlay";
-import MapMotionHud from "./MapMotionHud";
 
 const FOG_MASK_LAYER = "h3-fog-mask";
 const FOG_MASK_SOURCE = "h3-fog-mask";
@@ -60,12 +59,22 @@ const DISTRICT_LABELS_SOURCE = "district-labels";
 const DISTRICT_LEADERS_SOURCE = "district-leaders";
 const DISTRICT_BOUNDARY_UNLOCKED = "district-boundary-unlocked";
 const DISTRICT_BOUNDARY_LOCKED = "district-boundary-locked";
+const DISTRICT_FILL_LAYER = "district-fill";
 const DISTRICT_LABEL_HIT_LAYER = "district-label-hit";
 const DISTRICT_LABEL_LAYER = "district-labels";
 const DISTRICT_LEADER_LAYER = "district-leader-lines";
 const REVEALED_SOURCE = "h3-revealed";
 const SELECTED_SOURCE = "h3-selected";
 const ROUTE_SOURCE = "route";
+const HUD_CHIP_KEY = "veilo-hud-chip-open";
+
+function loadHudOpen(): boolean {
+  try {
+    return localStorage.getItem(HUD_CHIP_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
 
 type VeiloMapProps = {
   className?: string;
@@ -107,6 +116,7 @@ export default function VeiloMap({
   const [routeError, setRouteError] = useState<string | null>(null);
   const [districtCardId, setDistrictCardId] = useState<string | null>(null);
   const [districtName, setDistrictName] = useState("Москва");
+  const [hudOpen, setHudOpen] = useState(loadHudOpen);
   const hasCenteredOnUserRef = useRef(false);
   const hexUpdateRafRef = useRef(0);
   const interactionsBoundRef = useRef(false);
@@ -505,34 +515,49 @@ export default function VeiloMap({
 
   const closeDistrictCard = useCallback(() => setDistrictCardId(null), []);
 
+  const toggleHudChip = useCallback(() => {
+    setHudOpen((open) => {
+      const next = !open;
+      try {
+        localStorage.setItem(HUD_CHIP_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <div className={`relative h-full w-full min-h-[120px] ${className}`}>
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
       {mapInstance && <HexCanvasOverlay map={mapInstance} visited={visited} showGrid={showGrid} />}
       {mapInstance && <RouteCanvasOverlay map={mapInstance} route={activeRoute} />}
 
-      {(isExploring || showHeader) && (
-        <MapMotionHud position={position} compassHeading={compassHeading} speedBlocked={speedBlocked} navigating={isNavigating} />
-      )}
-
       {showHeader && (
         <div
-          className="absolute z-10 pointer-events-none"
+          className="absolute z-20"
           style={{
-            top: "max(0.75rem, var(--safe-top))",
+            top: "max(0.5rem, var(--safe-top))",
             left: "var(--safe-left)",
-            right: "calc(4rem + var(--safe-right))",
+            maxWidth: "calc(100% - 5rem - var(--safe-left) - var(--safe-right))",
           }}
         >
-          <div className="map-hud-chip">
-            <span className="map-hud-chip__icon" aria-hidden>
-              🧭
-            </span>
-            <div className="min-w-0">
-              <p className="map-hud-chip__label">Сейчас здесь</p>
+          <button
+            type="button"
+            onClick={toggleHudChip}
+            className={`map-hud-chip${hudOpen ? "" : " map-hud-chip--collapsed"}`}
+            aria-expanded={hudOpen}
+            aria-label={hudOpen ? "Скрыть район" : `Показать район: ${districtName}`}
+          >
+            {hudOpen ? (
+              <div className="min-w-0 text-left">
+                <p className="map-hud-chip__label">Сейчас здесь</p>
+                <p className="map-hud-chip__title">{districtName}</p>
+              </div>
+            ) : (
               <p className="map-hud-chip__title">{districtName}</p>
-            </div>
-          </div>
+            )}
+          </button>
         </div>
       )}
 
@@ -584,6 +609,7 @@ function removeMapLayers(map: Map) {
     DISTRICT_LABEL_LAYER,
     DISTRICT_LABEL_HIT_LAYER,
     DISTRICT_LEADER_LAYER,
+    DISTRICT_FILL_LAYER,
     DISTRICT_BOUNDARY_UNLOCKED,
     DISTRICT_BOUNDARY_LOCKED,
     MKAD_RING_LAYER,
@@ -683,11 +709,25 @@ function addMapSources(map: Map) {
   });
 
   map.addLayer({
+    id: DISTRICT_FILL_LAYER,
+    type: "fill",
+    source: DISTRICT_SOURCE,
+    paint: {
+      "fill-color": ["get", "zoneColor"],
+      "fill-opacity": ["case", ["get", "unlocked"], 0.1, 0.04],
+    },
+  });
+
+  map.addLayer({
     id: DISTRICT_BOUNDARY_UNLOCKED,
     type: "line",
     source: DISTRICT_SOURCE,
     filter: ["==", ["get", "unlocked"], true],
-    paint: { "line-color": "#D95D39", "line-width": 3, "line-opacity": 0.9 },
+    paint: {
+      "line-color": ["get", "zoneColor"],
+      "line-width": 2.8,
+      "line-opacity": 0.95,
+    },
   });
   map.addLayer({
     id: DISTRICT_BOUNDARY_LOCKED,
@@ -695,10 +735,10 @@ function addMapSources(map: Map) {
     source: DISTRICT_SOURCE,
     filter: ["==", ["get", "unlocked"], false],
     paint: {
-      "line-color": "#9B8AB8",
-      "line-width": 2.5,
-      "line-opacity": 0.85,
-      "line-dasharray": [6, 4],
+      "line-color": ["get", "zoneColor"],
+      "line-width": 2,
+      "line-opacity": 0.7,
+      "line-dasharray": [5, 3],
     },
   });
 
@@ -843,11 +883,9 @@ function applyLayerPaint(map: Map, isAmoled: boolean) {
     map.setPaintProperty(NATURE_LINE_LAYER, "line-width", paint.nature.lineWidth);
   }
   if (map.getLayer(DISTRICT_BOUNDARY_UNLOCKED)) {
-    map.setPaintProperty(DISTRICT_BOUNDARY_UNLOCKED, "line-color", paint.district.unlockedLine);
     map.setPaintProperty(DISTRICT_BOUNDARY_UNLOCKED, "line-width", paint.district.lineWidth);
   }
   if (map.getLayer(DISTRICT_BOUNDARY_LOCKED)) {
-    map.setPaintProperty(DISTRICT_BOUNDARY_LOCKED, "line-color", paint.district.lockedLine);
     map.setPaintProperty(DISTRICT_BOUNDARY_LOCKED, "line-width", paint.district.lineWidth);
   }
   if (map.getLayer(DISTRICT_LEADER_LAYER)) {

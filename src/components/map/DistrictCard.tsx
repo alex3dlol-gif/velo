@@ -34,7 +34,7 @@ export default function DistrictCard({ districtId, states, onClose }: DistrictCa
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="font-mono text-[9px] uppercase tracking-[0.2em]" style={{ color: "var(--ink-soft)" }}>
-              {district.area} · {unlocked ? "Уровень открыт" : "Уровень закрыт"}
+              Район Москвы · {unlocked ? "Уровень открыт" : "Уровень закрыт"}
             </p>
             <h2 className="font-mono text-[16px] font-extrabold mt-1 leading-snug" style={{ color: "var(--ink)" }}>
               {!unlocked && <span className="mr-1">🔒</span>}
@@ -87,7 +87,7 @@ export default function DistrictCard({ districtId, states, onClose }: DistrictCa
             className="mt-3 rounded-xl p-3 font-mono text-[11px]"
             style={{ background: "rgba(217,93,57,0.1)", color: "var(--terracotta)", border: "1px solid var(--terracotta)" }}
           >
-            Почти зачищен! При 100% откроется следующий район.
+            При 80% откроются соседние районы.
           </div>
         )}
       </div>

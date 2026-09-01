@@ -1,33 +1,14 @@
-import type { Feature, FeatureCollection, LineString, Point, Polygon } from "geojson";
-import { cellToLatLng, polygonToCells } from "h3-js";
-import { GAME_DISTRICTS, getDistrictById, getDistrictIdForCoords, isInsideMkad, type GameDistrict } from "../constants/districts";
+import type { Feature, FeatureCollection, LineString, MultiPolygon, Point, Polygon } from "geojson";
+import { cellToLatLng } from "h3-js";
+import {
+  GAME_DISTRICTS,
+  getDistrictById,
+  getDistrictIdForCoords,
+  isInsideMkad,
+  type GameDistrict,
+} from "../constants/districts";
 import { getDistrictZoneColor } from "../constants/districtColors";
-import { isInsideMkadRing } from "../constants/mkadPolygon";
-import type { MapBounds } from "../types/map";
-import { H3_RESOLUTION } from "../constants/h3";
-import { isNatureWaterCell } from "./natureReveals";
-import { getUnlockOrder } from "./homeDistrict";
 import type { DistrictStates } from "./districtProgress";
-
-function boundsToRing(bounds: MapBounds): [number, number][] {
-  return [
-    [bounds.north, bounds.west],
-    [bounds.north, bounds.east],
-    [bounds.south, bounds.east],
-    [bounds.south, bounds.west],
-  ];
-}
-
-function boundsPolygon(bounds: MapBounds): [number, number][] {
-  const { west, south, east, north } = bounds;
-  return [
-    [west, south],
-    [west, north],
-    [east, north],
-    [east, south],
-    [west, south],
-  ];
-}
 
 export function getDistrictIdForCell(h3Index: string): string | null {
   const [lat, lng] = cellToLatLng(h3Index);
@@ -40,21 +21,6 @@ export function getDistrictForCell(h3Index: string): string {
   return getDistrictById(id)?.name ?? "Москва";
 }
 
-/** Precomputed playable hex indices per district (non-overlapping grid). */
-export const DISTRICT_PLAYABLE_CELLS = new Map<string, string[]>();
-
-for (const district of GAME_DISTRICTS) {
-  try {
-    const cells = polygonToCells(boundsToRing(district.bounds), H3_RESOLUTION).filter(
-      (idx) => getDistrictIdForCell(idx) === district.id && !isNatureWaterCell(idx) && isInsideMkadRing(...cellToLatLng(idx)),
-    );
-    DISTRICT_PLAYABLE_CELLS.set(district.id, cells);
-    district.totalHexes = cells.length || district.totalHexes;
-  } catch {
-    DISTRICT_PLAYABLE_CELLS.set(district.id, []);
-  }
-}
-
 export function getDistrictForCoords(lat: number, lng: number): string {
   const id = getDistrictIdForCoords(lng, lat);
   if (!id) return "Москва";
@@ -62,7 +28,6 @@ export function getDistrictForCoords(lat: number, lng: number): string {
 }
 
 export function isDistrictCellPlayable(h3Index: string, states: DistrictStates): boolean {
-  if (isNatureWaterCell(h3Index)) return false;
   const districtId = getDistrictIdForCell(h3Index);
   if (!districtId) {
     const [lat, lng] = cellToLatLng(h3Index);
@@ -71,8 +36,8 @@ export function isDistrictCellPlayable(h3Index: string, states: DistrictStates):
   return states.unlocked[districtId] ?? false;
 }
 
-export function buildDistrictBoundaries(states: DistrictStates): FeatureCollection<Polygon> {
-  const features: Feature<Polygon>[] = GAME_DISTRICTS.map((district) => ({
+export function buildDistrictBoundaries(states: DistrictStates): FeatureCollection<Polygon | MultiPolygon> {
+  const features: Feature<Polygon | MultiPolygon>[] = GAME_DISTRICTS.map((district) => ({
     type: "Feature",
     properties: {
       districtId: district.id,
@@ -84,10 +49,7 @@ export function buildDistrictBoundaries(states: DistrictStates): FeatureCollecti
       zoneColor: getDistrictZoneColor(district.id),
       isHome: district.id === states.homeDistrictId,
     },
-    geometry: {
-      type: "Polygon",
-      coordinates: [boundsPolygon(district.bounds)],
-    },
+    geometry: district.geometry,
   }));
 
   return { type: "FeatureCollection", features };
@@ -120,68 +82,71 @@ function anchorToTextAnchor(anchor: GameDistrict["labelAnchor"]): "left" | "righ
   return "center";
 }
 
-export function buildDistrictLabels(states: DistrictStates): FeatureCollection<Point> {
-  const features: Feature<Point>[] = GAME_DISTRICTS.map((district) => {
-    const unlocked = states.unlocked[district.id];
-    const progress = states.progress[district.id] ?? 0;
-    const [lng, lat] = district.labelPosition;
+function shouldShowDistrictLabel(district: GameDistrict, states: DistrictStates): boolean {
+  if (district.id === states.homeDistrictId) return true;
+  if (states.unlocked[district.id]) return true;
+  if ((states.progress[district.id] ?? 0) > 0) return true;
+  return district.neighbors.some((n) => states.unlocked[n]);
+}
 
-    let statusLine: string;
-    if (unlocked) {
-      statusLine = district.id === states.homeDistrictId ? `🏠 ${progress}%` : `✦ ${progress}%`;
-    } else {
-      const order = getUnlockOrder(states.homeDistrictId);
-      const idx = order.indexOf(district.id);
-      if (idx > 0) {
-        const req = getDistrictById(order[idx - 1]!);
-        statusLine = `🔒 ${req?.shortName ?? ""}`;
+export function buildDistrictLabels(states: DistrictStates): FeatureCollection<Point> {
+  const features: Feature<Point>[] = GAME_DISTRICTS.filter((d) => shouldShowDistrictLabel(d, states)).map(
+    (district) => {
+      const unlocked = states.unlocked[district.id];
+      const progress = states.progress[district.id] ?? 0;
+      const [lng, lat] = district.labelPosition;
+
+      let statusLine: string;
+      if (unlocked) {
+        statusLine = district.id === states.homeDistrictId ? `🏠 ${progress}%` : `✦ ${progress}%`;
       } else {
         statusLine = "🔒";
       }
-    }
 
-    return {
-      type: "Feature",
-      properties: {
-        districtId: district.id,
-        name: district.shortName,
-        statusLine,
-        unlocked,
-        progress,
-        isHome: district.id === states.homeDistrictId,
-        zoneColor: getDistrictZoneColor(district.id),
-        textAnchor: anchorToTextAnchor(district.labelAnchor),
-        textJustify: anchorToTextJustify(district.labelAnchor),
-        textOffsetX: anchorToTextOffset(district.labelAnchor)[0],
-        textOffsetY: anchorToTextOffset(district.labelAnchor)[1],
-      },
-      geometry: { type: "Point", coordinates: [lng, lat] },
-    };
-  });
+      return {
+        type: "Feature",
+        properties: {
+          districtId: district.id,
+          name: district.shortName,
+          statusLine,
+          unlocked,
+          progress,
+          isHome: district.id === states.homeDistrictId,
+          zoneColor: getDistrictZoneColor(district.id),
+          textAnchor: anchorToTextAnchor(district.labelAnchor),
+          textJustify: anchorToTextJustify(district.labelAnchor),
+          textOffsetX: anchorToTextOffset(district.labelAnchor)[0],
+          textOffsetY: anchorToTextOffset(district.labelAnchor)[1],
+        },
+        geometry: { type: "Point", coordinates: [lng, lat] },
+      };
+    },
+  );
 
   return { type: "FeatureCollection", features };
 }
 
-/** Тонкие линии-указатели от подписи к границе зоны. */
 export function buildDistrictLeaderLines(states: DistrictStates): FeatureCollection<LineString> {
-  const features: Feature<LineString>[] = GAME_DISTRICTS.map((district) => {
-    const [labelLng, labelLat] = district.labelPosition;
-    const [cx, cy] = district.center;
-    return {
-      type: "Feature",
-      properties: {
-        districtId: district.id,
-        unlocked: states.unlocked[district.id],
-      },
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [labelLng, labelLat],
-          [cx, cy],
-        ],
-      },
-    };
-  });
+  const features: Feature<LineString>[] = GAME_DISTRICTS.filter((d) => shouldShowDistrictLabel(d, states)).map(
+    (district) => {
+      const [labelLng, labelLat] = district.labelPosition;
+      const [cx, cy] = district.center;
+      return {
+        type: "Feature",
+        properties: {
+          districtId: district.id,
+          unlocked: states.unlocked[district.id],
+        },
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [labelLng, labelLat],
+            [cx, cy],
+          ],
+        },
+      };
+    },
+  );
 
   return { type: "FeatureCollection", features };
 }

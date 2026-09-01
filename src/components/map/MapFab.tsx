@@ -9,7 +9,7 @@ type MapFabProps = {
 export default function MapFab({ showGrid, onToggleGrid, onLocate }: MapFabProps) {
   return (
     <div
-      className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2.5"
+      className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5"
       style={{ right: "max(0.75rem, var(--safe-right))" }}
     >
       <button

@@ -8,8 +8,7 @@ import { useApp } from "../../context/AppContext";
 import { useFogOfWarContext } from "../../context/FogOfWarContext";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import { formatSectorCount } from "../../constants/units";
-import { GAME_DISTRICTS } from "../../constants/districts";
-import { getUnlockHint } from "../../utils/districtProgress";
+import { getDistrictListForUi, getUnlockHint } from "../../utils/districtProgress";
 
 const SHEET_SNAP_KEY = "veilo-map-sheet-snap";
 
@@ -20,6 +19,7 @@ export default function MapTab() {
   const displayPct = districtStates.progress[homeDistrict.id] ?? progressPct;
   const mapView = useMemo(() => <VeiloMap showHeader />, []);
   const speedKmh = position?.speedKmh ?? 0;
+  const districtList = useMemo(() => getDistrictListForUi(districtStates), [districtStates]);
 
   const goButton = activeRoute ? (
     <div className="flex flex-col gap-2">
@@ -93,7 +93,7 @@ export default function MapTab() {
           Районы Москвы
         </p>
         <div className="flex flex-col gap-2 max-h-48 overflow-y-auto scroll-area">
-          {GAME_DISTRICTS.map((district) => {
+          {districtList.map((district) => {
             const unlocked = districtStates.unlocked[district.id];
             const pct = districtStates.progress[district.id] ?? 0;
             const hint = getUnlockHint(district, districtStates);
@@ -111,8 +111,8 @@ export default function MapTab() {
                       {district.name}
                     </p>
                     <p className="font-mono text-[9px] uppercase tracking-widest mt-0.5" style={{ color: "var(--ink-soft)" }}>
-                      {district.area}
-                      {unlocked ? " · открыт" : " · закрыт"}
+                      {unlocked ? "открыт" : "закрыт"}
+                      {!unlocked && district.neighbors.length > 0 ? ` · ${district.neighbors.length} соседей` : ""}
                     </p>
                   </div>
                   <span className="font-mono text-[15px] font-extrabold shrink-0" style={{ color: unlocked ? "var(--terracotta)" : "var(--ink-soft)" }}>

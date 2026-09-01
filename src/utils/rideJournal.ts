@@ -1,4 +1,5 @@
 import type { Travel } from "../context/AppContext";
+import { notifyJournalUpdated } from "../context/AppContext";
 
 export type JournalEntry = {
   id: string;
@@ -29,11 +30,12 @@ function loadAll(): JournalEntry[] {
   }
 }
 
-function saveAll(entries: JournalEntry[]) {
+function saveAll(entries: JournalEntry[]): boolean {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    return true;
   } catch {
-    /* ignore quota */
+    return false;
   }
 }
 
@@ -45,8 +47,25 @@ export function saveRideToJournal(entry: Omit<JournalEntry, "id">): JournalEntry
   const full: JournalEntry = { ...entry, id: `ride-${entry.endedAt}` };
   const all = loadAll();
   all.unshift(full);
-  saveAll(all.slice(0, 80));
-  return full;
+
+  if (saveAll(all.slice(0, 80))) {
+    notifyJournalUpdated();
+    return full;
+  }
+
+  // Фото часто переполняют localStorage — сохраняем без них.
+  const withoutPhotos: JournalEntry = {
+    ...full,
+    img: "",
+    photos: [],
+  };
+  const retry = [withoutPhotos, ...loadAll().filter((e) => e.id !== full.id)];
+  if (saveAll(retry.slice(0, 80))) {
+    notifyJournalUpdated();
+    return withoutPhotos;
+  }
+
+  return null;
 }
 
 export function formatJournalDate(ts: number): string {

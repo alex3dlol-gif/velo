@@ -5,13 +5,14 @@ import { useStealth } from "./StealthProvider";
 type StealthOverlayProps = {
   speedKmh: number;
   sessionSectors: number;
+  rideTimer?: string;
 };
 
 function formatClock(date: Date): string {
   return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function StealthOverlay({ speedKmh, sessionSectors }: StealthOverlayProps) {
+export default function StealthOverlay({ speedKmh, sessionSectors, rideTimer }: StealthOverlayProps) {
   const { isStealthActive, registerActivity } = useStealth();
   const [time, setTime] = useState(() => formatClock(new Date()));
 
@@ -46,6 +47,7 @@ export default function StealthOverlay({ speedKmh, sessionSectors }: StealthOver
             {time}
           </p>
           <div className="mt-10 flex gap-10 font-mono text-[13px] uppercase tracking-widest" style={{ color: "#4A4A4A" }}>
+            {rideTimer && <span>{rideTimer}</span>}
             <span>{speedKmh.toFixed(1)} км/ч</span>
             <span>+{sessionSectors} сект.</span>
           </div>

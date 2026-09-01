@@ -1,36 +1,29 @@
-import { getDistrictById, getDistrictIdForCoords } from "../constants/districts";
+import { GAME_DISTRICTS, getDistrictById, getDistrictIdForCoords } from "../constants/districts";
 import { MKAD_CENTER } from "../constants/mkad";
 
 const STORAGE_KEY = "veilo-home-district";
 
-/** Базовый порядок разблокировки (спираль); стартовый район — первый в цепочке. */
-export const BASE_UNLOCK_ORDER = [
-  "chertanovo",
-  "hamovniki",
-  "zamoskvorechye",
-  "ochakovo",
-  "tagansky",
-  "fili",
-  "tverskoy",
-  "marino",
-  "ramenki",
-  "sokolniki",
-  "sokol",
-  "izmailovo",
-] as const;
-
-export type HomeDistrictId = (typeof BASE_UNLOCK_ORDER)[number];
-
 export function getUnlockOrder(homeDistrictId: string): readonly string[] {
-  const idx = BASE_UNLOCK_ORDER.indexOf(homeDistrictId as HomeDistrictId);
-  if (idx <= 0) return BASE_UNLOCK_ORDER;
-  return [...BASE_UNLOCK_ORDER.slice(idx), ...BASE_UNLOCK_ORDER.slice(0, idx)];
+  const home = getDistrictById(homeDistrictId);
+  if (!home) return GAME_DISTRICTS.map((d) => d.id);
+
+  const [homeLng, homeLat] = home.center;
+  return [...GAME_DISTRICTS]
+    .sort((a, b) => {
+      const [alng, alat] = a.center;
+      const [blng, blat] = b.center;
+      const da = (alng - homeLng) ** 2 + (alat - homeLat) ** 2;
+      const db = (blng - homeLng) ** 2 + (blat - homeLat) ** 2;
+      return da - db;
+    })
+    .map((d) => d.id);
 }
 
 export function resolveHomeDistrictId(lat: number, lng: number): string {
   return (
     getDistrictIdForCoords(lng, lat) ??
     getDistrictIdForCoords(MKAD_CENTER[0], MKAD_CENTER[1]) ??
+    GAME_DISTRICTS[0]?.id ??
     "hamovniki"
   );
 }

@@ -7,6 +7,7 @@ import { SECTOR_LABEL } from "../constants/units";
 import { useApp } from "../context/AppContext";
 import { useFogOfWarContext } from "../context/FogOfWarContext";
 import { useGeolocation } from "../hooks/useGeolocation";
+import { useRideTimer } from "../hooks/useRideTimer";
 import {
   ExploreTrackingProvider,
   StealthOverlay,
@@ -16,6 +17,7 @@ import {
 import { isSpeedAllowed } from "../utils/geoMotion";
 import { formatJournalDate, MIN_RIDE_MS, saveRideToJournal } from "../utils/rideJournal";
 import { getDistrictForCoords } from "../utils/districtGeometry";
+import { formatRideDuration } from "../utils/rideDuration";
 
 const EXPLORE_SPLIT_KEY = "veilo-explore-split";
 
@@ -38,18 +40,23 @@ function ExploreModeContent() {
     clearRoute,
     setSpeedBlocked,
     speedBlocked,
+    exploreStartedAt,
+    getExploreElapsedMs,
   } = useApp();
   const { sessionRevealed } = useFogOfWarContext();
   const { position } = useGeolocation(true);
   const { registerActivity } = useStealth();
   const [dist, setDist] = useState(0);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
   const lastPosRef = useRef<{ lat: number; lng: number } | null>(null);
-  const startedAtRef = useRef(Date.now());
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const rideTimer = useRideTimer(isExploring);
 
   const speedKmh = position?.speedKmh ?? 0;
   const trackingActive = isExploring && !isPaused;
+  const elapsedMs = getExploreElapsedMs();
+  const minLeftMs = Math.max(0, MIN_RIDE_MS - elapsedMs);
 
   useSpeedAlert(speedKmh, trackingActive, travel);
 
@@ -84,25 +91,43 @@ function ExploreModeContent() {
   };
 
   const finishRide = () => {
-    const duration = Date.now() - startedAtRef.current;
-    if (duration >= MIN_RIDE_MS && position) {
-      const place = getDistrictForCoords(position.lat, position.lng);
-      saveRideToJournal({
+    const duration = getExploreElapsedMs();
+    const endedAt = Date.now();
+    const startedAt = exploreStartedAt ?? endedAt - duration;
+    const lastPos = lastPosRef.current ?? (position ? { lat: position.lat, lng: position.lng } : null);
+
+    if (duration >= MIN_RIDE_MS) {
+      const place = lastPos ? getDistrictForCoords(lastPos.lat, lastPos.lng) : "Москва";
+      const saved = saveRideToJournal({
         title: isNavigating ? "Маршрут" : "Вылазка",
         place,
-        date: formatJournalDate(Date.now()),
+        date: formatJournalDate(endedAt),
         dist: dist.toFixed(1),
         hexes: sessionRevealed,
         img: photos[0] ?? "",
         photos,
         travel,
-        startedAt: startedAtRef.current,
-        endedAt: Date.now(),
-        durationMin: Math.round(duration / 60_000),
+        startedAt,
+        endedAt,
+        durationMin: Math.max(1, Math.round(duration / 60_000)),
       });
+      setSaveNote(
+        saved
+          ? "Маршрут сохранён в журнал"
+          : "Не удалось сохранить — очистите память браузера",
+      );
+      window.setTimeout(() => {
+        clearRoute();
+        stopExploring();
+      }, saved ? 700 : 1400);
+      return;
     }
-    clearRoute();
-    stopExploring();
+
+    setSaveNote(`Маршрут короче 5 мин (${formatRideDuration(duration)}) — в журнал не записан`);
+    window.setTimeout(() => {
+      clearRoute();
+      stopExploring();
+    }, 1200);
   };
 
   return (
@@ -137,21 +162,34 @@ function ExploreModeContent() {
                 className="w-1.5 h-1.5 rounded-full inline-block"
                 style={{ background: isPaused ? "var(--ink-soft)" : "var(--terracotta)" }}
               />
-              {isPaused ? "на паузе" : isNavigating ? "навигация" : "запись трека"}
+              {isPaused ? "на паузе" : isNavigating ? "навигация" : "запись"} · {rideTimer}
             </div>
           </div>
         }
         panel={
           <div className="h-full flex flex-col px-4 pt-2" style={{ background: "var(--surface)", paddingBottom: "var(--safe-bottom)", paddingLeft: "var(--safe-left)", paddingRight: "var(--safe-right)" }}>
-            <div className="grid grid-cols-3 gap-2">
-              <Metric label="км/ч" value={speedKmh.toFixed(1)} big accent />
+            <div className="grid grid-cols-4 gap-2">
+              <Metric label="время" value={rideTimer} big accent />
+              <Metric label="км/ч" value={speedKmh.toFixed(1)} big />
               <Metric label="км" value={dist.toFixed(2)} big />
               <Metric label={SECTOR_LABEL} value={`+${sessionRevealed}`} big accent />
             </div>
 
+            {minLeftMs > 0 && !isPaused && (
+              <p className="font-mono text-[9px] mt-2 text-center uppercase tracking-widest" style={{ color: "var(--ink-soft)" }}>
+                до журнала {formatRideDuration(minLeftMs)}
+              </p>
+            )}
+
             {speedBlocked && (
               <p className="font-mono text-[10px] mt-2 text-center" style={{ color: "#c0392b" }}>
                 Слишком высокая скорость — секторы не открываются
+              </p>
+            )}
+
+            {saveNote && (
+              <p className="font-mono text-[10px] mt-2 text-center" style={{ color: "var(--terracotta)" }}>
+                {saveNote}
               </p>
             )}
 
@@ -190,7 +228,7 @@ function ExploreModeContent() {
         }
       />
 
-      <StealthOverlay speedKmh={speedKmh} sessionSectors={sessionRevealed} />
+      <StealthOverlay speedKmh={speedKmh} sessionSectors={sessionRevealed} rideTimer={rideTimer} />
     </div>
   );
 }

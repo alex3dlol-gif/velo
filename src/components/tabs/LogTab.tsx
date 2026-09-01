@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import { TabHeader } from "../shared";
-import { useApp } from "../../context/AppContext";
+import { onJournalUpdated, useApp } from "../../context/AppContext";
 import { getJournalEntries, type JournalEntry } from "../../utils/rideJournal";
 
 export default function LogTab() {
   const { activeTab } = useApp();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
+
+  useEffect(() => {
+    const refresh = () => setEntries(getJournalEntries());
+    refresh();
+    return onJournalUpdated(refresh);
+  }, []);
 
   useEffect(() => {
     if (activeTab === "log") setEntries(getJournalEntries());
