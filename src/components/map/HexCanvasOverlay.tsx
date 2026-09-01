@@ -18,9 +18,9 @@ const GRID_LIGHT = "rgba(92, 61, 30, 0.45)";
 const GRID_DARK = "rgba(232, 212, 255, 0.35)";
 const REVEALED_STROKE = "rgba(232, 90, 43, 0.85)";
 const NATURE_STROKE = "rgba(46, 159, 214, 0.7)";
-const FOG_ALPHA_LIGHT = 0.42;
-const FOG_ALPHA_DARK = 0.52;
-const FOG_BLEND = 0.55;
+const FOG_ALPHA_LIGHT = 0.32;
+const FOG_ALPHA_DARK = 0.4;
+const FOG_BLEND = 0.18;
 
 const fogColorCache = new Map<string, string>();
 

@@ -40,7 +40,9 @@ import SectorCard from "./SectorCard";
 import DistrictCard from "./DistrictCard";
 import MapFab from "./MapFab";
 import HexCanvasOverlay from "./HexCanvasOverlay";
+import DistrictCanvasOverlay from "./DistrictCanvasOverlay";
 import RouteCanvasOverlay from "./RouteCanvasOverlay";
+import { HeadingSmoother, PositionSmoother, pickHeadingSource } from "../../utils/headingSmooth";
 
 const FOG_MASK_LAYER = "h3-fog-mask";
 const FOG_MASK_SOURCE = "h3-fog-mask";
@@ -120,6 +122,15 @@ export default function VeiloMap({
   const hasCenteredOnUserRef = useRef(false);
   const hexUpdateRafRef = useRef(0);
   const interactionsBoundRef = useRef(false);
+  const posSmootherRef = useRef(new PositionSmoother());
+  const headingSmootherRef = useRef(new HeadingSmoother());
+  const navRafRef = useRef(0);
+  const lastFollowAtRef = useRef(0);
+  const lastDistrictNameRef = useRef("Москва");
+  const latestPositionRef = useRef(position);
+  const latestCompassRef = useRef(compassHeading);
+  latestPositionRef.current = position;
+  latestCompassRef.current = compassHeading;
 
   const visitedRef = useRef(visited);
   const showGridRef = useRef(showGrid);
@@ -408,33 +419,77 @@ export default function VeiloMap({
       markerElRef.current = el.firstElementChild as HTMLDivElement;
     }
 
-    const arrowHeading = compassHeading ?? position.heading;
-    const arrowEl = markerElRef.current.querySelector(".user-marker__arrow") as HTMLElement | null;
-    if (arrowEl && arrowHeading != null) {
-      arrowEl.style.transform = `rotate(${arrowHeading}deg)`;
-    }
-
     if (!markerRef.current) {
-      markerRef.current = new maplibregl.Marker({ element: markerElRef.current, anchor: "center" })
-        .setLngLat(clampToMkad(position.lng, position.lat))
-        .addTo(map);
-    } else {
-      markerRef.current.setLngLat(clampToMkad(position.lng, position.lat));
-    }
-
-    setDistrictName(getDistrictForCoords(position.lat, position.lng));
-
-    if (autoFollow && isExploring && !isPaused) {
       const [lng, lat] = clampToMkad(position.lng, position.lat);
-      const bearing = isNavigating && position.heading != null ? position.heading : map.getBearing();
-      map.easeTo({
-        center: [lng, lat],
-        bearing,
-        zoom: Math.max(map.getZoom(), isNavigating ? 16 : 15),
-        duration: 800,
-      });
+      posSmootherRef.current.reset(lat, lng);
+      headingSmootherRef.current.reset(pickHeadingSource(compassHeading, position.heading, position.speedKmh));
+      markerRef.current = new maplibregl.Marker({ element: markerElRef.current, anchor: "center" })
+        .setLngLat([lng, lat])
+        .addTo(map);
     }
-  }, [position, mapReady, autoFollow, isExploring, isPaused, isNavigating, compassHeading]);
+  }, [position, mapReady, compassHeading]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !position) {
+      if (navRafRef.current) cancelAnimationFrame(navRafRef.current);
+      navRafRef.current = 0;
+      return;
+    }
+
+    let lastTs = performance.now();
+
+    const tick = (now: number) => {
+      const pos = latestPositionRef.current;
+      const marker = markerRef.current;
+      const arrowEl = markerElRef.current?.querySelector(".user-marker__arrow") as HTMLElement | null;
+      if (!pos || !marker) {
+        navRafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      const dt = Math.min((now - lastTs) / 1000, 0.12);
+      lastTs = now;
+
+      const [rawLng, rawLat] = clampToMkad(pos.lng, pos.lat);
+      const smoothed = posSmootherRef.current.update(rawLat, rawLng, dt, pos.speedKmh, pos.accuracy);
+      marker.setLngLat([smoothed.lng, smoothed.lat]);
+
+      const headingSource = pickHeadingSource(
+        latestCompassRef.current,
+        pos.heading,
+        pos.speedKmh,
+      );
+      if (headingSource != null && arrowEl) {
+        const smoothHeading = headingSmootherRef.current.update(headingSource, dt, pos.speedKmh);
+        arrowEl.style.transform = `rotate(${smoothHeading}deg)`;
+      }
+
+      if (autoFollow && isExploring && !isPaused && now - lastFollowAtRef.current > 350) {
+        lastFollowAtRef.current = now;
+        map.easeTo({
+          center: [smoothed.lng, smoothed.lat],
+          bearing: 0,
+          zoom: Math.max(map.getZoom(), isNavigating ? 16 : 15),
+          duration: 500,
+          essential: true,
+        });
+      }
+
+      const districtLabel = getDistrictForCoords(smoothed.lat, smoothed.lng);
+      if (districtLabel !== lastDistrictNameRef.current) {
+        lastDistrictNameRef.current = districtLabel;
+        setDistrictName(districtLabel);
+      }
+      navRafRef.current = requestAnimationFrame(tick);
+    };
+
+    navRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (navRafRef.current) cancelAnimationFrame(navRafRef.current);
+      navRafRef.current = 0;
+    };
+  }, [mapReady, position, autoFollow, isExploring, isPaused, isNavigating]);
 
   useEffect(() => {
     if (!position || !isExploring || isPaused || speedBlocked) return;
@@ -531,6 +586,7 @@ export default function VeiloMap({
     <div className={`relative h-full w-full min-h-[120px] ${className}`}>
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
       {mapInstance && <HexCanvasOverlay map={mapInstance} visited={visited} showGrid={showGrid} />}
+      {mapInstance && <DistrictCanvasOverlay map={mapInstance} />}
       {mapInstance && <RouteCanvasOverlay map={mapInstance} route={activeRoute} />}
 
       {showHeader && (
@@ -714,7 +770,7 @@ function addMapSources(map: Map) {
     source: DISTRICT_SOURCE,
     paint: {
       "fill-color": ["get", "zoneColor"],
-      "fill-opacity": ["case", ["get", "unlocked"], 0.1, 0.04],
+      "fill-opacity": ["case", ["get", "unlocked"], 0.14, 0.08],
     },
   });
 
@@ -725,8 +781,8 @@ function addMapSources(map: Map) {
     filter: ["==", ["get", "unlocked"], true],
     paint: {
       "line-color": ["get", "zoneColor"],
-      "line-width": 2.8,
-      "line-opacity": 0.95,
+      "line-width": 3,
+      "line-opacity": 1,
     },
   });
   map.addLayer({
@@ -736,9 +792,9 @@ function addMapSources(map: Map) {
     filter: ["==", ["get", "unlocked"], false],
     paint: {
       "line-color": ["get", "zoneColor"],
-      "line-width": 2,
-      "line-opacity": 0.7,
-      "line-dasharray": [5, 3],
+      "line-width": 2.5,
+      "line-opacity": 0.85,
+      "line-dasharray": [4, 3],
     },
   });
 

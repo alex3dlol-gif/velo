@@ -8,6 +8,7 @@ import { useApp } from "../context/AppContext";
 import { useFogOfWarContext } from "../context/FogOfWarContext";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { useRideTimer } from "../hooks/useRideTimer";
+import { useRideTrackRecorder } from "../hooks/useRideTrackRecorder";
 import {
   ExploreTrackingProvider,
   StealthOverlay,
@@ -15,11 +16,20 @@ import {
   useStealth,
 } from "../features/tracking";
 import { isSpeedAllowed } from "../utils/geoMotion";
+import { blobToPreviewUrl, compressImageFile } from "../utils/photoCompress";
 import { formatJournalDate, MIN_RIDE_MS, saveRideToJournal } from "../utils/rideJournal";
 import { getDistrictForCoords } from "../utils/districtGeometry";
 import { formatRideDuration } from "../utils/rideDuration";
 
 const EXPLORE_SPLIT_KEY = "veilo-explore-split";
+
+type PendingPhoto = {
+  blob: Blob;
+  preview: string;
+  lat: number | null;
+  lng: number | null;
+  takenAt: number;
+};
 
 export default function ExploreMode() {
   return (
@@ -47,11 +57,14 @@ function ExploreModeContent() {
   const { position } = useGeolocation(true);
   const { registerActivity } = useStealth();
   const [dist, setDist] = useState(0);
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<PendingPhoto[]>([]);
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const lastPosRef = useRef<{ lat: number; lng: number } | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const photosRef = useRef<PendingPhoto[]>([]);
   const rideTimer = useRideTimer(isExploring);
+  const trackRef = useRideTrackRecorder(isExploring && !isPaused, position);
+  photosRef.current = photos;
 
   const speedKmh = position?.speedKmh ?? 0;
   const trackingActive = isExploring && !isPaused;
@@ -59,6 +72,12 @@ function ExploreModeContent() {
   const minLeftMs = Math.max(0, MIN_RIDE_MS - elapsedMs);
 
   useSpeedAlert(speedKmh, trackingActive, travel);
+
+  useEffect(() => {
+    return () => {
+      photosRef.current.forEach((p) => URL.revokeObjectURL(p.preview));
+    };
+  }, []);
 
   useEffect(() => {
     if (!trackingActive) {
@@ -79,15 +98,24 @@ function ExploreModeContent() {
     lastPosRef.current = { lat: position.lat, lng: position.lng };
   }, [position, isPaused]);
 
-  const handlePhoto = (file: File | null) => {
+  const handlePhoto = async (file: File | null) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result ?? "");
-      if (!dataUrl) return;
-      setPhotos((prev) => [...prev, dataUrl]);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const blob = await compressImageFile(file);
+      const preview = blobToPreviewUrl(blob);
+      setPhotos((prev) => [
+        ...prev,
+        {
+          blob,
+          preview,
+          lat: position?.lat ?? null,
+          lng: position?.lng ?? null,
+          takenAt: Date.now(),
+        },
+      ]);
+    } catch {
+      setSaveNote("Не удалось обработать фото");
+    }
   };
 
   const finishRide = () => {
@@ -95,39 +123,56 @@ function ExploreModeContent() {
     const endedAt = Date.now();
     const startedAt = exploreStartedAt ?? endedAt - duration;
     const lastPos = lastPosRef.current ?? (position ? { lat: position.lat, lng: position.lng } : null);
+    const track = [...trackRef.current];
+    if (lastPos) {
+      const last = track[track.length - 1];
+      if (!last || last[0] !== lastPos.lng || last[1] !== lastPos.lat) {
+        track.push([lastPos.lng, lastPos.lat]);
+      }
+    }
 
-    if (duration >= MIN_RIDE_MS) {
-      const place = lastPos ? getDistrictForCoords(lastPos.lat, lastPos.lng) : "Москва";
-      const saved = saveRideToJournal({
+    const finalize = (saved: boolean, note: string) => {
+      setSaveNote(note);
+      window.setTimeout(() => {
+        photos.forEach((p) => URL.revokeObjectURL(p.preview));
+        clearRoute();
+        stopExploring();
+      }, saved ? 700 : 1400);
+    };
+
+    if (duration < MIN_RIDE_MS) {
+      finalize(false, `Маршрут короче 5 мин (${formatRideDuration(duration)}) — в журнал не записан`);
+      return;
+    }
+
+    const place = lastPos ? getDistrictForCoords(lastPos.lat, lastPos.lng) : "Москва";
+    void saveRideToJournal(
+      {
         title: isNavigating ? "Маршрут" : "Вылазка",
         place,
         date: formatJournalDate(endedAt),
         dist: dist.toFixed(1),
         hexes: sessionRevealed,
-        img: photos[0] ?? "",
-        photos,
         travel,
         startedAt,
         endedAt,
         durationMin: Math.max(1, Math.round(duration / 60_000)),
-      });
-      setSaveNote(
-        saved
-          ? "Маршрут сохранён в журнал"
-          : "Не удалось сохранить — очистите память браузера",
-      );
-      window.setTimeout(() => {
-        clearRoute();
-        stopExploring();
-      }, saved ? 700 : 1400);
-      return;
-    }
-
-    setSaveNote(`Маршрут короче 5 мин (${formatRideDuration(duration)}) — в журнал не записан`);
-    window.setTimeout(() => {
-      clearRoute();
-      stopExploring();
-    }, 1200);
+        track,
+      },
+      photos.map((p) => ({
+        blob: p.blob,
+        lat: p.lat,
+        lng: p.lng,
+        takenAt: p.takenAt,
+      })),
+    ).then((saved) => {
+      if (!saved) {
+        finalize(false, "Не удалось сохранить маршрут");
+        return;
+      }
+      const photoNote = photos.length > 0 ? ` · ${photos.length} фото` : "";
+      finalize(true, `Маршрут сохранён в журнал${photoNote}`);
+    });
   };
 
   return (
@@ -143,7 +188,7 @@ function ExploreModeContent() {
         capture="environment"
         className="hidden"
         onChange={(e) => {
-          handlePhoto(e.target.files?.[0] ?? null);
+          void handlePhoto(e.target.files?.[0] ?? null);
           e.target.value = "";
         }}
       />
@@ -195,8 +240,8 @@ function ExploreModeContent() {
 
             {photos.length > 0 && (
               <div className="flex gap-2 mt-2 overflow-x-auto">
-                {photos.map((src, i) => (
-                  <img key={i} src={src} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />
+                {photos.map((p, i) => (
+                  <img key={i} src={p.preview} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />
                 ))}
               </div>
             )}

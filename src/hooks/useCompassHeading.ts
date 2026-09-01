@@ -46,7 +46,13 @@ export function useCompassHeading(enabled = true) {
 
     const onOrientation = (e: Event) => {
       const h = readHeading(e as DeviceOrientationEvent);
-      if (h != null) setHeading(h);
+      if (h == null) return;
+      setHeading((prev) => {
+        if (prev == null) return h;
+        const diff = ((h - prev + 540) % 360) - 180;
+        if (Math.abs(diff) < 1.5) return prev;
+        return h;
+      });
     };
 
     window.addEventListener("deviceorientationabsolute", onOrientation, true);
