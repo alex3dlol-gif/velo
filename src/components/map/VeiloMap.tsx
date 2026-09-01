@@ -12,6 +12,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useFogOfWarContext } from "../../context/FogOfWarContext";
 import { useGeolocation } from "../../hooks/useGeolocation";
+import { useCompassHeading } from "../../hooks/useCompassHeading";
 import {
   DEFAULT_CENTER,
   DEFAULT_ZOOM,
@@ -98,6 +99,7 @@ export default function VeiloMap({
 
   const [mapInstance, setMapInstance] = useState<Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const { heading: compassHeading, enableCompass } = useCompassHeading(mapReady);
   const [showGrid, setShowGrid] = useState(true);
   const [sectorCard, setSectorCard] = useState<SectorCardData | null>(null);
   const [selectedHex, setSelectedHex] = useState<string | null>(null);
@@ -377,6 +379,16 @@ export default function VeiloMap({
   }, [position, mapReady]);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onTap = () => {
+      void enableCompass();
+    };
+    container.addEventListener("pointerdown", onTap, { once: true });
+    return () => container.removeEventListener("pointerdown", onTap);
+  }, [enableCompass]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (!map || !position || !mapReady) return;
 
@@ -386,8 +398,10 @@ export default function VeiloMap({
       markerElRef.current = el.firstElementChild as HTMLDivElement;
     }
 
-    if (markerElRef.current && position.heading !== null) {
-      markerElRef.current.style.transform = `rotate(${position.heading}deg)`;
+    const arrowHeading = compassHeading ?? position.heading;
+    const arrowEl = markerElRef.current.querySelector(".user-marker__arrow") as HTMLElement | null;
+    if (arrowEl && arrowHeading != null) {
+      arrowEl.style.transform = `rotate(${arrowHeading}deg)`;
     }
 
     if (!markerRef.current) {
@@ -410,7 +424,7 @@ export default function VeiloMap({
         duration: 800,
       });
     }
-  }, [position, mapReady, autoFollow, isExploring, isPaused, isNavigating]);
+  }, [position, mapReady, autoFollow, isExploring, isPaused, isNavigating, compassHeading]);
 
   useEffect(() => {
     if (!position || !isExploring || isPaused || speedBlocked) return;
@@ -498,7 +512,7 @@ export default function VeiloMap({
       {mapInstance && <RouteCanvasOverlay map={mapInstance} route={activeRoute} />}
 
       {(isExploring || showHeader) && (
-        <MapMotionHud position={position} speedBlocked={speedBlocked} navigating={isNavigating} />
+        <MapMotionHud position={position} compassHeading={compassHeading} speedBlocked={speedBlocked} navigating={isNavigating} />
       )}
 
       {showHeader && (

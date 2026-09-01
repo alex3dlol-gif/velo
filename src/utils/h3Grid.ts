@@ -1,5 +1,6 @@
 import {
   cellToBoundary,
+  cellToChildren,
   cellToLatLng,
   gridDisk,
   isValidCell,
@@ -18,19 +19,39 @@ const TERRACOTTA = "#D95D39";
 const BOUNDARY_CACHE = new Map<string, [number, number][]>();
 const VIEWPORT_CELL_CACHE = new Map<string, string[]>();
 
-const VIEWPORT_CELL_HARD_CAP = 650;
+const VIEWPORT_CELL_HARD_CAP = 950;
 
 function maxCellsForZoom(zoom: number): number {
   if (zoom >= 16) return 520;
-  if (zoom >= 14) return 450;
-  if (zoom >= 12) return 360;
-  if (zoom >= 11) return 300;
-  return 240;
+  if (zoom >= 14) return 480;
+  if (zoom >= 12) return 420;
+  if (zoom >= 11.5) return 380;
+  return 9999;
 }
 
-/** Всегда res 9 — иначе сетка и visited-гексы не совпадают. */
-export function resolutionForZoom(_zoom: number): number {
+/** При отдалении — res 8 (сплошная сетка), при приближении — res 9. */
+export function resolutionForZoom(zoom: number): number {
+  if (zoom < 11.5) return 8;
   return H3_RESOLUTION;
+}
+
+function isRevealedAtResolution(
+  h3Index: string,
+  visited: ReadonlySet<string>,
+  displayRes: number,
+  isAutoRevealed: (h3Index: string) => boolean,
+): boolean {
+  if (isAutoRevealed(h3Index)) return true;
+  if (visited.has(h3Index)) return true;
+  if (displayRes >= H3_RESOLUTION) return false;
+  try {
+    for (const child of cellToChildren(h3Index, H3_RESOLUTION)) {
+      if (visited.has(child)) return true;
+    }
+  } catch {
+    /* skip */
+  }
+  return false;
 }
 
 function getCellRing(h3Index: string): [number, number][] {
@@ -184,7 +205,8 @@ export function getCellsInBounds(bounds: MapBounds, resolution = H3_RESOLUTION, 
     let cells = filterMkadCells(polygonToCells(polygon, resolution));
     cells = cells.filter((idx) => cellIntersectsBounds(idx, bounds));
     if (cells.length > 0) {
-      const cap = Math.min(VIEWPORT_CELL_HARD_CAP, Math.max(maxCells * 3, 400));
+      if (resolution <= 8) return cells;
+      const cap = Math.min(VIEWPORT_CELL_HARD_CAP, Math.max(maxCells * 2, 420));
       return cells.length <= cap ? cells : subsampleCells(cells, cap);
     }
   } catch {
@@ -207,7 +229,8 @@ export function getCellsInBounds(bounds: MapBounds, resolution = H3_RESOLUTION, 
   }
 
   const result = filterMkadCells([...cells]);
-  const cap = Math.min(VIEWPORT_CELL_HARD_CAP, Math.max(maxCells * 3, 400));
+  if (resolution <= 8) return result;
+  const cap = Math.min(VIEWPORT_CELL_HARD_CAP, Math.max(maxCells * 2, 420));
   return result.length <= cap ? result : subsampleCells(result, cap);
 }
 
@@ -351,7 +374,7 @@ export function buildViewportHexLayers(
 
   for (const idx of cells) {
     if (!isValidCell(idx)) continue;
-    if (visited.has(idx) || isAutoRevealed(idx)) {
+    if (isRevealedAtResolution(idx, visited, h3Res, isAutoRevealed)) {
       revealed.push(polygonFromRing(idx, { visited: true }));
     } else {
       fog.push(polygonFromRing(idx, { fog: true }));
@@ -390,7 +413,7 @@ export function getViewportCellBuckets(
 
   for (const idx of cells) {
     if (!isValidCell(idx)) continue;
-    if (visited.has(idx) || isAutoRevealed(idx)) revealed.push(idx);
+    if (isRevealedAtResolution(idx, visited, h3Res, isAutoRevealed)) revealed.push(idx);
     else fog.push(idx);
   }
 

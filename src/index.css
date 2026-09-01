@@ -251,4 +251,6 @@ body {
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
   border-bottom: 9px solid #FFBE0B;
+  transform-origin: 50% 19px;
+  transition: transform 0.12s linear;
 }

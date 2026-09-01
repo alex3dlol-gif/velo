@@ -2,16 +2,17 @@ import type { GeoPosition } from "../../context/GeolocationContext";
 
 type MapMotionHudProps = {
   position: GeoPosition | null;
+  compassHeading?: number | null;
   speedBlocked?: boolean;
   navigating?: boolean;
 };
 
-export default function MapMotionHud({ position, speedBlocked, navigating }: MapMotionHudProps) {
+export default function MapMotionHud({ position, compassHeading, speedBlocked, navigating }: MapMotionHudProps) {
   if (!position) return null;
 
   const speed = position.speedKmh.toFixed(1);
-  const heading =
-    position.heading != null ? `${Math.round(position.heading)}°` : "—";
+  const headingDeg = compassHeading ?? position.heading;
+  const heading = headingDeg != null ? `${Math.round(headingDeg)}°` : "—";
 
   return (
     <div
